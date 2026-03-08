@@ -14,7 +14,7 @@
 //! let resp = Response::not_found("Resource not found");
 //!
 //! // Streaming response for LLM tokens
-//! let resp = Response::ok().sse_stream();
+//! let resp = Response::ok().sse_stream(vec!["token1", "token2"]);
 //! ```
 
 use serde::Serialize;
@@ -41,8 +41,8 @@ pub enum ResponseBody {
     Text(String),
     /// Binary body.
     Bytes(Vec<u8>),
-    /// Server-Sent Events stream marker.
-    SseStream,
+    /// Server-Sent Events stream with collected event data.
+    SseEvents(Vec<String>),
 }
 
 impl Response {
@@ -143,9 +143,23 @@ impl Response {
         self
     }
 
-    /// Set this response as an SSE stream.
-    pub fn sse_stream(mut self) -> Self {
-        self.body = ResponseBody::SseStream;
+    /// Set this response as an SSE stream with the given events.
+    ///
+    /// Each item is formatted as an SSE `data:` line. Accepts any iterator
+    /// of string-like values.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use neuralframe_core::response::Response;
+    ///
+    /// let events = vec!["hello", "world"];
+    /// let resp = Response::ok().sse_stream(events);
+    /// assert!(resp.is_streaming());
+    /// ```
+    pub fn sse_stream(mut self, events: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        let collected: Vec<String> = events.into_iter().map(|e| e.into()).collect();
+        self.body = ResponseBody::SseEvents(collected);
         self.headers.insert(
             "Content-Type".to_string(),
             "text/event-stream".to_string(),
@@ -174,7 +188,13 @@ impl Response {
             ResponseBody::Empty => Vec::new(),
             ResponseBody::Text(text) => text.as_bytes().to_vec(),
             ResponseBody::Bytes(bytes) => bytes.clone(),
-            ResponseBody::SseStream => Vec::new(),
+            ResponseBody::SseEvents(events) => {
+                let mut buf = String::new();
+                for event in events {
+                    buf.push_str(&format!("data: {}\n\n", event));
+                }
+                buf.into_bytes()
+            }
         }
     }
 
@@ -184,13 +204,19 @@ impl Response {
             ResponseBody::Empty => Some(String::new()),
             ResponseBody::Text(text) => Some(text.clone()),
             ResponseBody::Bytes(bytes) => String::from_utf8(bytes.clone()).ok(),
-            ResponseBody::SseStream => None,
+            ResponseBody::SseEvents(events) => {
+                let mut buf = String::new();
+                for event in events {
+                    buf.push_str(&format!("data: {}\n\n", event));
+                }
+                Some(buf)
+            }
         }
     }
 
     /// Check if this is a streaming response.
     pub fn is_streaming(&self) -> bool {
-        matches!(self.body, ResponseBody::SseStream)
+        matches!(self.body, ResponseBody::SseEvents(_))
     }
 
     /// Get the content length.
@@ -199,7 +225,9 @@ impl Response {
             ResponseBody::Empty => 0,
             ResponseBody::Text(text) => text.len(),
             ResponseBody::Bytes(bytes) => bytes.len(),
-            ResponseBody::SseStream => 0,
+            ResponseBody::SseEvents(events) => {
+                events.iter().map(|e| "data: ".len() + e.len() + "\n\n".len()).sum()
+            }
         }
     }
 }
@@ -379,13 +407,32 @@ mod tests {
 
     #[test]
     fn test_response_sse_stream() {
-        let resp = Response::ok().sse_stream();
+        let events = vec!["hello", "world"];
+        let resp = Response::ok().sse_stream(events);
         assert!(resp.is_streaming());
         assert_eq!(
             resp.headers.get("Content-Type").unwrap(),
             "text/event-stream"
         );
         assert_eq!(resp.headers.get("Cache-Control").unwrap(), "no-cache");
+    }
+
+    #[test]
+    fn test_response_sse_stream_body() {
+        let events = vec!["hello".to_string(), "world".to_string()];
+        let resp = Response::ok().sse_stream(events);
+        let body = resp.body_string().unwrap();
+        assert!(body.contains("data: hello\n\n"));
+        assert!(body.contains("data: world\n\n"));
+        assert_eq!(resp.content_length(), body.len());
+    }
+
+    #[test]
+    fn test_response_sse_stream_empty() {
+        let resp = Response::ok().sse_stream(Vec::<String>::new());
+        assert!(resp.is_streaming());
+        assert_eq!(resp.body_bytes(), Vec::<u8>::new());
+        assert_eq!(resp.content_length(), 0);
     }
 
     #[test]

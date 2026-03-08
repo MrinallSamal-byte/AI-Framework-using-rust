@@ -183,6 +183,7 @@ async fn main() {
 
             match req.json::<AgentRequest>() {
                 Ok(agent_req) => {
+                    let agent_req = agent_req.into_inner();
                     Response::ok().json(serde_json::json!({
                         "task": agent_req.task,
                         "mode": agent_req.mode,

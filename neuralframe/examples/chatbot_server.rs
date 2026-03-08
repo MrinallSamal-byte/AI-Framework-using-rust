@@ -55,6 +55,7 @@ async fn main() {
 
             match req.json::<ChatRequest>() {
                 Ok(chat_req) => {
+                    let chat_req = chat_req.into_inner();
                     // Build the prompt
                     let system = chat_req.system_prompt.unwrap_or_else(|| {
                         "You are a helpful AI assistant powered by NeuralFrame.".to_string()
@@ -101,19 +102,13 @@ async fn main() {
             match req.json::<StreamRequest>() {
                 Ok(stream_req) => {
                     // In production, this would stream tokens from the LLM
-                    let words: Vec<String> = stream_req
+                    let events: Vec<String> = stream_req
                         .message
                         .split_whitespace()
-                        .map(|w| w.to_string())
+                        .map(|word| format!("Echo: {} ", word))
                         .collect();
 
-                    let stream = tokio_stream::iter(
-                        words.into_iter().map(|word| {
-                            format!("Echo: {} ", word)
-                        }),
-                    );
-
-                    Response::ok().sse_stream(stream)
+                    Response::ok().sse_stream(events)
                 }
                 Err(_) => Response::bad_request("Invalid JSON"),
             }

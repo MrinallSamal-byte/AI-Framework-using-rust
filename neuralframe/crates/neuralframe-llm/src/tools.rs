@@ -109,8 +109,8 @@ pub trait Tool: Send + Sync {
     async fn execute(&self, arguments: serde_json::Value) -> Result<String, LLMError>;
 
     /// Get the tool name.
-    fn name(&self) -> &str {
-        &self.definition().name
+    fn name(&self) -> String {
+        self.definition().name
     }
 }
 

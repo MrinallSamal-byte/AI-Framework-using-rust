@@ -1,0 +1,24 @@
+[package]
+name = "neuralframe-auth"
+description = "JWT, API key, and OAuth2 authentication for NeuralFrame"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+neuralframe-core = { path = "../neuralframe-core" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+jsonwebtoken = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+dashmap = { workspace = true }
+reqwest = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

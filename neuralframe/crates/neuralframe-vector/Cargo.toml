@@ -1,0 +1,28 @@
+[package]
+name = "neuralframe-vector"
+description = "Built-in vector store with HNSW index and SIMD-accelerated search"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+rayon = { workspace = true }
+parking_lot = { workspace = true }
+memmap2 = { workspace = true }
+rand = { workspace = true }
+uuid = { workspace = true }
+bytes = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+proptest = { workspace = true }
+tempfile = "3"
+
+[[bench]]
+name = "vector_bench"
+harness = false

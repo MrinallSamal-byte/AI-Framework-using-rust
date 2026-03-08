@@ -1,0 +1,28 @@
+[package]
+name = "neuralframe-llm"
+description = "Universal LLM client with streaming, retry, and multi-provider support"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+tokio-stream = { workspace = true }
+pin-project-lite = { workspace = true }
+reqwest = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+bytes = { workspace = true }
+eventsource-stream = { workspace = true }
+tiktoken-rs = { workspace = true }
+rand = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

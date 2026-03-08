@@ -1,0 +1,50 @@
+[package]
+name = "neuralframe-core"
+description = "High-performance HTTP server, routing, and middleware for NeuralFrame"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+tokio = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+http-body-util = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+tokio-stream = { workspace = true }
+pin-project-lite = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+bytes = { workspace = true }
+percent-encoding = { workspace = true }
+thiserror = { workspace = true }
+dashmap = { workspace = true }
+parking_lot = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+criterion = { workspace = true }
+neuralframe-vector = { path = "../neuralframe-vector" }
+neuralframe-prompt = { path = "../neuralframe-prompt" }
+neuralframe-agents = { path = "../neuralframe-agents" }
+neuralframe-llm = { path = "../neuralframe-llm" }
+
+[[example]]
+name = "chatbot_server"
+path = "../../examples/chatbot_server.rs"
+
+[[example]]
+name = "rag_pipeline"
+path = "../../examples/rag_pipeline.rs"
+
+[[example]]
+name = "multi_agent"
+path = "../../examples/multi_agent.rs"

@@ -1,0 +1,24 @@
+[package]
+name = "neuralframe-agents"
+description = "Agent orchestration engine with tool calling and multi-agent graphs"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+neuralframe-llm = { path = "../neuralframe-llm" }
+neuralframe-memory = { path = "../neuralframe-memory" }
+neuralframe-prompt = { path = "../neuralframe-prompt" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

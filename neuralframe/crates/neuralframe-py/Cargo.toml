@@ -1,0 +1,26 @@
+[package]
+name = "neuralframe-py"
+description = "Python bindings for NeuralFrame via PyO3"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+name = "neuralframe"
+crate-type = ["cdylib"]
+
+[dependencies]
+neuralframe-core = { path = "../neuralframe-core" }
+neuralframe-llm = { path = "../neuralframe-llm" }
+neuralframe-memory = { path = "../neuralframe-memory" }
+neuralframe-vector = { path = "../neuralframe-vector" }
+neuralframe-prompt = { path = "../neuralframe-prompt" }
+neuralframe-cache = { path = "../neuralframe-cache" }
+neuralframe-agents = { path = "../neuralframe-agents" }
+neuralframe-auth = { path = "../neuralframe-auth" }
+pyo3 = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+futures = { workspace = true }

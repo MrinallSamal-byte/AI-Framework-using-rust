@@ -1,0 +1,25 @@
+[package]
+name = "neuralframe-cache"
+description = "Semantic caching layer for reducing LLM API costs"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+neuralframe-vector = { path = "../neuralframe-vector" }
+neuralframe-llm = { path = "../neuralframe-llm" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+dashmap = { workspace = true }
+redis = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+parking_lot = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

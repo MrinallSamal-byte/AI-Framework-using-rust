@@ -1,0 +1,27 @@
+[package]
+name = "neuralframe-memory"
+description = "Multi-tier memory engine for AI applications"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+neuralframe-vector = { path = "../neuralframe-vector" }
+neuralframe-llm = { path = "../neuralframe-llm" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+dashmap = { workspace = true }
+redis = { workspace = true }
+sqlx = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+tiktoken-rs = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

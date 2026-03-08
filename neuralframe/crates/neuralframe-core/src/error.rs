@@ -138,6 +138,7 @@ pub type NeuralResult<T> = Result<T, NeuralError>;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::error::Error;
 
     #[test]
     fn test_error_display_route_not_found() {

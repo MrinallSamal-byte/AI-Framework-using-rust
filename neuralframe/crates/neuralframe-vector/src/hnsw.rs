@@ -40,11 +40,9 @@ impl Ord for Neighbor {
 /// A node in the HNSW graph.
 #[derive(Debug, Clone)]
 struct HnswNode {
-    id: String,
     vector: Vec<f32>,
     /// Neighbors at each level.
     neighbors: Vec<Vec<String>>,
-    level: usize,
 }
 
 /// HNSW index for approximate nearest neighbor search.
@@ -84,20 +82,24 @@ impl HnswIndex {
 
     /// Calculate a random level for a new node.
     fn random_level(&self) -> usize {
+        if self.m <= 1 {
+            return 0;
+        }
         let mut rng = rand::thread_rng();
-        let r: f64 = rng.gen();
+        let r: f64 = rng.gen::<f64>().max(f64::EPSILON);
         (-r.ln() * self.ml).floor() as usize
     }
 
     /// Insert a vector into the index.
     pub fn insert(&mut self, id: String, vector: Vec<f32>) {
+        if vector.len() != self.dimensions {
+            return;
+        }
         let level = self.random_level();
 
         let node = HnswNode {
-            id: id.clone(),
             vector,
             neighbors: vec![Vec::new(); level + 1],
-            level,
         };
 
         if self.entry_point.is_none() {
@@ -178,7 +180,7 @@ impl HnswIndex {
 
     /// Search for nearest neighbors.
     pub fn search(&self, query: &[f32], limit: usize, metric: DistanceMetric) -> Vec<(String, f32)> {
-        if self.nodes.is_empty() {
+        if self.nodes.is_empty() || query.len() != self.dimensions {
             return Vec::new();
         }
 
@@ -402,5 +404,15 @@ mod tests {
         let results = index.search(&[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 5, DistanceMetric::Cosine);
         assert!(!results.is_empty());
         assert!(results.len() <= 5);
+    }
+
+    #[test]
+    fn test_hnsw_m1_no_panic() {
+        let mut index = HnswIndex::new(3, 1, 50);
+        for i in 0..10 {
+            index.insert(format!("v{}", i), vec![i as f32, 0.0, 0.0]);
+        }
+        let results = index.search(&[1.0, 0.0, 0.0], 5, DistanceMetric::Cosine);
+        assert!(!results.is_empty());
     }
 }

@@ -9,6 +9,7 @@ pub mod storage;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::io::{BufRead, BufReader};
 
 /// Errors from the vector store.
 #[derive(Debug)]
@@ -39,20 +40,15 @@ impl std::fmt::Display for VectorError {
 impl std::error::Error for VectorError {}
 
 /// Distance/similarity metric to use for search.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub enum DistanceMetric {
     /// Cosine similarity (default for embeddings).
+    #[default]
     Cosine,
     /// Euclidean distance.
     Euclidean,
     /// Dot product.
     DotProduct,
-}
-
-impl Default for DistanceMetric {
-    fn default() -> Self {
-        Self::Cosine
-    }
 }
 
 /// A single search result.
@@ -107,14 +103,18 @@ pub struct VectorEntry {
 /// Stores vectors with metadata and supports fast approximate nearest
 /// neighbor search using HNSW indexing.
 pub struct VectorStore {
-    /// Stored vectors by ID.
-    entries: parking_lot::RwLock<HashMap<String, VectorEntry>>,
-    /// HNSW index for ANN search.
-    index: parking_lot::RwLock<hnsw::HnswIndex>,
+    /// Stored vectors and ANN index protected by a single lock.
+    inner: parking_lot::Mutex<VectorStoreInner>,
     /// Distance metric.
     metric: DistanceMetric,
     /// Vector dimensionality.
     dimensions: usize,
+}
+
+#[derive(Debug)]
+struct VectorStoreInner {
+    entries: HashMap<String, VectorEntry>,
+    index: hnsw::HnswIndex,
 }
 
 impl VectorStore {
@@ -126,8 +126,10 @@ impl VectorStore {
     /// * `metric` - Distance metric for search
     pub fn new(dimensions: usize, metric: DistanceMetric) -> Self {
         Self {
-            entries: parking_lot::RwLock::new(HashMap::new()),
-            index: parking_lot::RwLock::new(hnsw::HnswIndex::new(dimensions, 16, 200)),
+            inner: parking_lot::Mutex::new(VectorStoreInner {
+                entries: HashMap::new(),
+                index: hnsw::HnswIndex::new(dimensions, 16, 200),
+            }),
             metric,
             dimensions,
         }
@@ -153,11 +155,9 @@ impl VectorStore {
             metadata,
         };
 
-        let mut entries = self.entries.write();
-        let mut index = self.index.write();
-
-        entries.insert(id.to_string(), entry);
-        index.insert(id.to_string(), vector);
+        let mut inner = self.inner.lock();
+        inner.entries.insert(id.to_string(), entry);
+        inner.index.insert(id.to_string(), vector);
 
         Ok(())
     }
@@ -176,16 +176,15 @@ impl VectorStore {
             });
         }
 
-        let entries = self.entries.read();
-        let index = self.index.read();
+        let inner = self.inner.lock();
 
         // Get candidates from HNSW index
-        let candidates = index.search(query, limit * 2, self.metric);
+        let candidates = inner.index.search(query, limit * 2, self.metric);
 
         let mut results: Vec<SearchResult> = candidates
             .into_iter()
             .filter_map(|(id, score)| {
-                let entry = entries.get(&id)?;
+                let entry = inner.entries.get(&id)?;
                 // Apply metadata filter
                 if let Some(f) = filter {
                     if !f.matches(&entry.metadata) {
@@ -210,36 +209,75 @@ impl VectorStore {
 
     /// Delete a vector by ID.
     pub fn delete(&self, id: &str) -> Result<(), VectorError> {
-        let mut entries = self.entries.write();
-        let mut index = self.index.write();
-
-        entries
+        let mut inner = self.inner.lock();
+        inner
+            .entries
             .remove(id)
             .ok_or_else(|| VectorError::NotFound(id.to_string()))?;
-        index.remove(id);
+        inner.index.remove(id);
 
         Ok(())
     }
 
     /// Get the total number of stored vectors.
     pub fn len(&self) -> usize {
-        self.entries.read().len()
+        self.inner.lock().entries.len()
     }
 
     /// Check if the store is empty.
     pub fn is_empty(&self) -> bool {
-        self.entries.read().is_empty()
+        self.inner.lock().entries.is_empty()
     }
 
     /// Get a vector by ID.
     pub fn get(&self, id: &str) -> Option<VectorEntry> {
-        self.entries.read().get(id).cloned()
+        self.inner.lock().entries.get(id).cloned()
+    }
+
+    /// Save the current vector store snapshot to disk.
+    pub fn save_to_disk(&self, config: &storage::StorageConfig) -> Result<(), VectorError> {
+        let mut storage = storage::PersistentStorage::new(config.clone())?;
+        let entries: Vec<VectorEntry> = self.inner.lock().entries.values().cloned().collect();
+        storage.compact(&entries)
+    }
+
+    /// Load a vector store from a snapshot and WAL on disk.
+    pub fn load_from_disk(
+        config: &storage::StorageConfig,
+        dimensions: usize,
+        metric: DistanceMetric,
+    ) -> Result<VectorStore, VectorError> {
+        let snap_path = config.data_dir.join("snapshot.jsonl");
+        let store = VectorStore::new(dimensions, metric);
+        if snap_path.exists() {
+            let file = std::fs::File::open(&snap_path)
+                .map_err(|e| VectorError::StorageError(e.to_string()))?;
+            for line in BufReader::new(file).lines() {
+                let line = line.map_err(|e| VectorError::StorageError(e.to_string()))?;
+                if let Ok(entry) = serde_json::from_str::<VectorEntry>(&line) {
+                    store.insert(&entry.id, entry.vector, entry.metadata)?;
+                }
+            }
+        }
+        let storage = storage::PersistentStorage::new(config.clone())?;
+        for wal_entry in storage.load_wal()? {
+            match wal_entry {
+                storage::WalEntry::Insert { id, vector, metadata } => {
+                    store.insert(&id, vector, metadata)?;
+                }
+                storage::WalEntry::Delete { id } => {
+                    let _ = store.delete(&id);
+                }
+            }
+        }
+        Ok(store)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn test_insert_and_search() {
@@ -313,6 +351,26 @@ mod tests {
         let entry = store.get("a").unwrap();
         assert_eq!(entry.id, "a");
         assert_eq!(entry.vector, vec![1.0, 0.0, 0.0]);
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_inserts_no_data_race() {
+        let store = Arc::new(VectorStore::new(4, DistanceMetric::Cosine));
+        let mut handles = vec![];
+        for i in 0..50usize {
+            let store = Arc::clone(&store);
+            handles.push(tokio::spawn(async move {
+                for j in 0..10usize {
+                    let id = format!("v{}_{}", i, j);
+                    let vec = vec![(i * 10 + j) as f32 / 500.0; 4];
+                    assert!(store.insert(&id, vec, serde_json::json!({})).is_ok());
+                }
+            }));
+        }
+        for handle in handles {
+            assert!(handle.await.is_ok());
+        }
+        assert_eq!(store.len(), 500);
     }
 
     #[test]

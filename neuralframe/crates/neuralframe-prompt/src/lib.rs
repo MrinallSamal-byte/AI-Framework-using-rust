@@ -441,23 +441,45 @@ impl Default for PromptRegistry {
     }
 }
 
-/// Estimate token count for a string (rough approximation: ~4 chars per token).
+/// Count tokens for a string using the selected model tokenizer when available.
+pub fn count_tokens(text: &str, model: &str) -> usize {
+    tiktoken_rs::get_bpe_from_model(model)
+        .or_else(|_| tiktoken_rs::get_bpe_from_model("gpt-4"))
+        .map(|bpe| bpe.encode_with_special_tokens(text).len())
+        .unwrap_or_else(|_| (text.len() as f64 / 4.0).ceil() as usize)
+}
+
+/// Estimate token count for a string.
 pub fn estimate_tokens(text: &str) -> usize {
-    (text.len() as f64 / 4.0).ceil() as usize
+    count_tokens(text, "gpt-4")
 }
 
 /// Truncate text to fit within a token limit.
 pub fn truncate_to_tokens(text: &str, max_tokens: usize) -> String {
-    let max_chars = max_tokens * 4;
-    if text.len() <= max_chars {
-        text.to_string()
-    } else {
-        let truncated = &text[..max_chars.min(text.len())];
-        // Find last word boundary
-        if let Some(last_space) = truncated.rfind(' ') {
-            format!("{}...", &truncated[..last_space])
-        } else {
-            format!("{}...", truncated)
+    truncate_to_tokens_for_model(text, max_tokens, "gpt-4")
+}
+
+/// Truncate text to fit within a token limit for a specific model.
+pub fn truncate_to_tokens_for_model(text: &str, max_tokens: usize, model: &str) -> String {
+    match tiktoken_rs::get_bpe_from_model(model)
+        .or_else(|_| tiktoken_rs::get_bpe_from_model("gpt-4"))
+    {
+        Ok(bpe) => {
+            let tokens = bpe.encode_with_special_tokens(text);
+            if tokens.len() <= max_tokens {
+                return text.to_string();
+            }
+            let truncated = &tokens[..max_tokens.saturating_sub(1)];
+            bpe.decode(truncated.to_vec())
+                .unwrap_or_else(|_| text.chars().take(max_tokens * 4).collect())
+        }
+        Err(_) => {
+            let max_chars = max_tokens * 4;
+            if text.len() <= max_chars {
+                text.to_string()
+            } else {
+                format!("{}...", &text[..max_chars.saturating_sub(3)])
+            }
         }
     }
 }
@@ -580,16 +602,32 @@ mod tests {
     }
 
     #[test]
+    fn test_count_tokens_nonempty() {
+        assert!(count_tokens("Hello world", "gpt-4") > 0);
+    }
+
+    #[test]
+    fn test_count_tokens_empty() {
+        assert_eq!(count_tokens("", "gpt-4"), 0);
+    }
+
+    #[test]
     fn test_estimate_tokens() {
         assert_eq!(estimate_tokens(""), 0);
         assert!(estimate_tokens("Hello, world!") > 0);
     }
 
     #[test]
-    fn test_truncate_to_tokens() {
-        let text = "Hello world this is a long text";
-        let truncated = truncate_to_tokens(text, 3); // ~12 chars
-        assert!(truncated.len() < text.len() + 4);
+    fn test_truncate_preserves_short_text() {
+        let text = "one two three four five";
+        assert_eq!(truncate_to_tokens(text, 100), text);
+    }
+
+    #[test]
+    fn test_truncate_reduces_long_text() {
+        let text = "x".repeat(1000);
+        let truncated = truncate_to_tokens(&text, 10);
+        assert!(truncated.len() < text.len());
     }
 
     #[test]

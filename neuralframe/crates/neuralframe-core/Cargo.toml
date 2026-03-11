@@ -28,6 +28,7 @@ dashmap = { workspace = true }
 parking_lot = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
+flate2 = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
@@ -36,6 +37,13 @@ neuralframe-vector = { path = "../neuralframe-vector" }
 neuralframe-prompt = { path = "../neuralframe-prompt" }
 neuralframe-agents = { path = "../neuralframe-agents" }
 neuralframe-llm = { path = "../neuralframe-llm" }
+neuralframe-core = { path = "." }
+neuralframe-memory = { path = "../neuralframe-memory" }
+neuralframe-auth = { path = "../neuralframe-auth" }
+neuralframe-cache = { path = "../neuralframe-cache" }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+tempfile = "3"
 
 [[example]]
 name = "chatbot_server"

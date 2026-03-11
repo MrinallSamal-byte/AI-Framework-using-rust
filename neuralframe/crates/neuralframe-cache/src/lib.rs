@@ -88,6 +88,7 @@ pub struct SemanticCache {
 struct CacheEntry {
     response: CachedResponse,
     created: Instant,
+    last_accessed: Instant,
     hits: u64,
 }
 
@@ -108,10 +109,12 @@ impl SemanticCache {
     /// Look up a response by exact prompt match.
     pub fn get_exact(&self, prompt: &str) -> Option<CachedResponse> {
         let key = Self::hash_prompt(prompt);
-        self.entries.get(&key).and_then(|entry| {
+        self.entries.get_mut(&key).and_then(|mut entry| {
             if entry.created.elapsed() > self.config.ttl {
                 None
             } else {
+                entry.last_accessed = Instant::now();
+                entry.hits += 1;
                 Some(entry.response.clone())
             }
         })
@@ -119,7 +122,7 @@ impl SemanticCache {
 
     /// Look up a response by semantic similarity.
     pub fn get_semantic(&self, embedding: &[f32]) -> Option<CachedResponse> {
-        let mut best_match: Option<(f32, CachedResponse)> = None;
+        let mut best_match: Option<(f32, String, CachedResponse)> = None;
 
         for entry in self.entries.iter() {
             if entry.created.elapsed() > self.config.ttl {
@@ -128,13 +131,28 @@ impl SemanticCache {
 
             let similarity = cosine_similarity(embedding, &entry.response.embedding);
             if similarity >= self.config.similarity_threshold {
-                if best_match.as_ref().map_or(true, |(s, _)| similarity > *s) {
-                    best_match = Some((similarity, entry.response.clone()));
+                if best_match
+                    .as_ref()
+                    .is_none_or(|(s, _, _)| similarity > *s)
+                {
+                    best_match = Some((
+                        similarity,
+                        entry.key().clone(),
+                        entry.response.clone(),
+                    ));
                 }
             }
         }
 
-        best_match.map(|(_, response)| response)
+        if let Some((_, key, response)) = best_match {
+            if let Some(mut entry) = self.entries.get_mut(&key) {
+                entry.last_accessed = Instant::now();
+                entry.hits += 1;
+            }
+            Some(response)
+        } else {
+            None
+        }
     }
 
     /// Store a prompt-response pair in the cache.
@@ -163,6 +181,7 @@ impl SemanticCache {
         self.entries.insert(key, CacheEntry {
             response: cached,
             created: Instant::now(),
+            last_accessed: Instant::now(),
             hits: 0,
         });
     }
@@ -172,6 +191,7 @@ impl SemanticCache {
         let key = Self::hash_prompt(prompt);
         if let Some(mut entry) = self.entries.get_mut(&key) {
             entry.hits += 1;
+            entry.last_accessed = Instant::now();
         }
     }
 
@@ -187,7 +207,7 @@ impl SemanticCache {
         if let Some(oldest_key) = self
             .entries
             .iter()
-            .min_by_key(|entry| entry.hits)
+            .min_by_key(|entry| entry.last_accessed)
             .map(|entry| entry.key().clone())
         {
             self.entries.remove(&oldest_key);
@@ -212,10 +232,7 @@ impl SemanticCache {
 
     /// Hash a prompt string for exact match lookups.
     fn hash_prompt(prompt: &str) -> String {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        prompt.hash(&mut hasher);
-        format!("{:x}", hasher.finish())
+        blake3::hash(prompt.as_bytes()).to_hex().to_string()
     }
 }
 
@@ -313,6 +330,20 @@ mod tests {
         cache.store("c", "3", vec![3.0], "m");
 
         assert!(cache.entries.len() <= 2);
+    }
+
+    #[test]
+    fn test_lru_evicts_least_recently_accessed() {
+        let cache = SemanticCache::new(CacheConfig {
+            max_entries: 2,
+            ..Default::default()
+        });
+        cache.store("A", "1", vec![1.0, 0.0, 0.0], "m");
+        cache.store("B", "2", vec![0.0, 1.0, 0.0], "m");
+        assert!(cache.get_exact("A").is_some());
+        cache.store("C", "3", vec![0.0, 0.0, 1.0], "m");
+        assert!(cache.get_exact("A").is_some());
+        assert!(cache.get_exact("B").is_none());
     }
 
     #[test]

@@ -56,7 +56,7 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     if denom < 1e-10 {
         return 0.0;
     }
-    dot / denom
+    (dot / denom).clamp(-1.0, 1.0)
 }
 
 /// Compute Euclidean distance between two vectors.

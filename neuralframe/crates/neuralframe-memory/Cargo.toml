@@ -6,6 +6,10 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[features]
+redis-tests = []
+pg-tests = []
+
 [dependencies]
 neuralframe-vector = { path = "../neuralframe-vector" }
 neuralframe-llm = { path = "../neuralframe-llm" }
@@ -25,3 +29,4 @@ tiktoken-rs = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
+tokio-stream = { workspace = true }

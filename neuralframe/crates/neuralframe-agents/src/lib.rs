@@ -164,6 +164,55 @@ impl ReActAgent {
     pub fn new(config: AgentConfig) -> Self {
         Self { config }
     }
+
+    /// Parse LLM response text into an AgentAction.
+    ///
+    /// Expected format:
+    ///   Thought: <reasoning>
+    ///   Action: <tool_name>
+    ///   Action Input: <json_input>
+    /// or:
+    ///   Thought: <reasoning>
+    ///   Final Answer: <answer>
+    #[allow(dead_code)]
+    fn parse_response(text: &str) -> AgentAction {
+        let mut thought = String::new();
+        let mut action_tool = None;
+        let mut action_input = None;
+        let mut final_answer = None;
+
+        for line in text.lines() {
+            let trimmed = line.trim();
+            if let Some(t) = trimmed.strip_prefix("Thought:") {
+                thought = t.trim().to_string();
+            } else if let Some(a) = trimmed.strip_prefix("Action:") {
+                action_tool = Some(a.trim().to_string());
+            } else if let Some(ai) = trimmed.strip_prefix("Action Input:") {
+                action_input = Some(ai.trim().to_string());
+            } else if let Some(fa) = trimmed.strip_prefix("Final Answer:") {
+                final_answer = Some(fa.trim().to_string());
+            }
+        }
+
+        if let Some(answer) = final_answer {
+            return AgentAction::Answer(answer);
+        }
+
+        if let Some(tool) = action_tool {
+            let input = action_input
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .unwrap_or(serde_json::json!({}));
+            return AgentAction::Act { tool, input };
+        }
+
+        if !thought.is_empty() {
+            return AgentAction::Think(thought);
+        }
+
+        // If we can't parse the response in the expected format,
+        // treat the entire text as the final answer.
+        AgentAction::Answer(text.trim().to_string())
+    }
 }
 
 #[async_trait]
@@ -172,8 +221,8 @@ impl Agent for ReActAgent {
         let start = std::time::Instant::now();
         let mut trace = Vec::new();
 
-        // Step 1: Think
-        trace.push(AgentStep {
+        // Step 1: Think about the task
+        let think_step = AgentStep {
             step: 1,
             action: AgentAction::Think(format!(
                 "I need to complete this task: {}",
@@ -181,26 +230,42 @@ impl Agent for ReActAgent {
             )),
             timestamp: chrono::Utc::now(),
             duration_ms: 0,
-        });
+        };
+        trace.push(think_step);
 
-        // In a full implementation, this would:
-        // 1. Send the task + tools to the LLM
-        // 2. Parse the LLM's response for tool calls
-        // 3. Execute tools and observe results
-        // 4. Loop until the agent produces a final answer
+        // ReAct loop: iterate up to max_iterations
+        // Without an LLM provider wired in, the agent produces a final answer
+        // directly. When an LLM is connected, this loop would:
+        //   1. Build a prompt with system prompt, tools, and history
+        //   2. Call the LLM to get Thought/Action/Final Answer
+        //   3. Execute tools and feed observations back
+        //   4. Repeat until a Final Answer is produced or max iterations hit
+        let mut iteration = 1;
+        let answer = loop {
+            iteration += 1;
+            if iteration > self.config.max_iterations {
+                return Err(AgentError::MaxIterationsReached(self.config.max_iterations));
+            }
 
-        trace.push(AgentStep {
-            step: 2,
-            action: AgentAction::Answer(format!(
-                "Completed analysis of: {}",
-                task
-            )),
-            timestamp: chrono::Utc::now(),
-            duration_ms: start.elapsed().as_millis() as u64,
-        });
+            // Without a live LLM, produce the final answer
+            let step_start = std::time::Instant::now();
+            let action = AgentAction::Answer(format!("Completed: {}", task));
+
+            let step = AgentStep {
+                step: iteration,
+                action: action.clone(),
+                timestamp: chrono::Utc::now(),
+                duration_ms: step_start.elapsed().as_millis() as u64,
+            };
+            trace.push(step);
+
+            if let AgentAction::Answer(ref ans) = action {
+                break ans.clone();
+            }
+        };
 
         Ok(AgentResult {
-            answer: format!("Completed: {}", task),
+            answer,
             steps: trace.len(),
             trace,
             total_duration_ms: start.elapsed().as_millis() as u64,

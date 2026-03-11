@@ -59,6 +59,38 @@ impl SummaryMemory {
         let count = self.store.count(session).await?;
         Ok(count > self.summary_threshold)
     }
+
+    /// Summarize the conversation for a session using an LLM provider.
+    pub async fn summarize(
+        &self,
+        session: &str,
+        provider: &dyn neuralframe_llm::providers::LLMProvider,
+        model: &str,
+    ) -> Result<String, MemoryError> {
+        let entries = self.store.get_all(session).await?;
+
+        let transcript: String = entries
+            .iter()
+            .map(|e| format!("{}: {}", e.role, e.content))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let req = neuralframe_llm::types::CompletionRequest::new(model)
+            .system("Summarize the following conversation in 3-5 sentences.")
+            .user(&transcript);
+
+        let response = provider
+            .complete(req)
+            .await
+            .map_err(|e| MemoryError::StorageError(e.to_string()))?;
+
+        let summary = response.content.clone();
+
+        let summary_entry = MemoryEntry::new(session, "summary", &summary);
+        self.store.store(session, summary_entry).await?;
+
+        Ok(summary)
+    }
 }
 
 /// Vector memory using semantic retrieval of relevant past context.
@@ -178,5 +210,112 @@ mod tests {
 
         let entities = mem.get_entities("s1", "Alice").await.unwrap();
         assert!(!entities.is_empty());
+    }
+
+    // Mock LLM provider for testing SummaryMemory::summarize
+    struct MockProvider {
+        response: String,
+    }
+
+    impl MockProvider {
+        fn new(response: &str) -> Self {
+            Self {
+                response: response.to_string(),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl neuralframe_llm::providers::LLMProvider for MockProvider {
+        async fn complete(
+            &self,
+            _req: neuralframe_llm::types::CompletionRequest,
+        ) -> Result<neuralframe_llm::types::CompletionResponse, neuralframe_llm::error::LLMError>
+        {
+            Ok(neuralframe_llm::types::CompletionResponse {
+                content: self.response.clone(),
+                model: "mock".to_string(),
+                usage: neuralframe_llm::types::Usage::default(),
+                finish_reason: Some(neuralframe_llm::types::FinishReason::Stop),
+                tool_calls: vec![],
+            })
+        }
+
+        async fn stream(
+            &self,
+            _req: neuralframe_llm::types::CompletionRequest,
+        ) -> Result<
+            std::pin::Pin<
+                Box<
+                    dyn tokio_stream::Stream<
+                            Item = Result<
+                                neuralframe_llm::types::Token,
+                                neuralframe_llm::error::LLMError,
+                            >,
+                        > + Send,
+                >,
+            >,
+            neuralframe_llm::error::LLMError,
+        > {
+            Ok(Box::pin(tokio_stream::empty()))
+        }
+
+        async fn embed(
+            &self,
+            _text: &str,
+            _model: &str,
+        ) -> Result<Vec<f32>, neuralframe_llm::error::LLMError> {
+            Ok(vec![0.0; 128])
+        }
+
+        fn name(&self) -> &str {
+            "mock"
+        }
+
+        fn models(&self) -> Vec<String> {
+            vec!["mock-model".to_string()]
+        }
+    }
+
+    #[tokio::test]
+    async fn test_summarize() {
+        let store = Arc::new(InMemoryStore::new());
+        let mem = SummaryMemory::new(store.clone(), 5);
+
+        // Add some conversation entries
+        store
+            .store("s1", MemoryEntry::new("s1", "user", "Hello, how are you?"))
+            .await
+            .unwrap();
+        store
+            .store(
+                "s1",
+                MemoryEntry::new("s1", "assistant", "I'm doing well, thank you!"),
+            )
+            .await
+            .unwrap();
+        store
+            .store(
+                "s1",
+                MemoryEntry::new("s1", "user", "Tell me about Rust programming."),
+            )
+            .await
+            .unwrap();
+
+        let mock_provider = MockProvider::new(
+            "The user greeted the assistant and asked about Rust programming.",
+        );
+
+        let summary = mem.summarize("s1", &mock_provider, "mock-model").await.unwrap();
+        assert_eq!(
+            summary,
+            "The user greeted the assistant and asked about Rust programming."
+        );
+
+        // The summary should have been stored
+        let all = store.get_all("s1").await.unwrap();
+        let summary_entries: Vec<_> = all.iter().filter(|e| e.role == "summary").collect();
+        assert_eq!(summary_entries.len(), 1);
+        assert_eq!(summary_entries[0].content, summary);
     }
 }

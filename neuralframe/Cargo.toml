@@ -46,7 +46,7 @@ dashmap = "6"
 
 # Database
 redis = { version = "0.25", features = ["tokio-comp"] }
-sqlx = { version = "0.7", features = ["postgres", "sqlite", "runtime-tokio"] }
+sqlx = { version = "0.7", features = ["postgres", "sqlite", "runtime-tokio", "chrono", "json"] }
 
 # Observability
 tracing = "0.1"

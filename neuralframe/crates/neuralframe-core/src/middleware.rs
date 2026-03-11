@@ -11,6 +11,7 @@
 //! use neuralframe_core::response::Response;
 //! use async_trait::async_trait;
 //!
+//! #[derive(Debug)]
 //! struct AuthMiddleware;
 //!
 //! #[async_trait]

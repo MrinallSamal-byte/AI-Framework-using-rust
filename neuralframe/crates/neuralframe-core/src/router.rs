@@ -173,9 +173,7 @@ impl<T: Clone> Router<T> {
         let mut current = &mut self.root;
 
         for segment in &segments {
-            if segment.starts_with(':') {
-                // Parameter segment
-                let param_name = &segment[1..];
+            if let Some(param_name) = segment.strip_prefix(':') {
                 let idx = current
                     .children
                     .iter()
@@ -187,9 +185,7 @@ impl<T: Clone> Router<T> {
                     let last = current.children.len() - 1;
                     current = &mut current.children[last];
                 }
-            } else if segment.starts_with('*') {
-                // Wildcard segment
-                let param_name = &segment[1..];
+            } else if let Some(param_name) = segment.strip_prefix('*') {
                 let idx = current
                     .children
                     .iter()
@@ -202,7 +198,6 @@ impl<T: Clone> Router<T> {
                     current = &mut current.children[last];
                 }
             } else {
-                // Static segment
                 let idx = current
                     .children
                     .iter()
@@ -278,9 +273,7 @@ impl<T: Clone> Router<T> {
         // Try static children first (highest priority)
         for child in &node.children {
             if child.node_type == NodeType::Static && child.segment == *current_segment {
-                if let Some(handler) =
-                    self.match_node(child, segments, depth + 1, params, method)
-                {
+                if let Some(handler) = self.match_node(child, segments, depth + 1, params, method) {
                     return Some(handler);
                 }
             }

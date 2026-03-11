@@ -33,7 +33,8 @@ pub mod prelude {
     pub use crate::error::*;
     pub use crate::extractors::*;
     pub use crate::middleware::{
-        CorsMiddleware, LoggingMiddleware, Middleware, MiddlewareChain, RateLimitMiddleware,
+        BodyLimitMiddleware, CompressionMiddleware, CorsMiddleware, LoggingMiddleware, Middleware,
+        MiddlewareChain, RateLimitMiddleware, RequestIdMiddleware, TimeoutMiddleware,
     };
     pub use crate::response::{IntoResponse, Response, StreamingResponse};
     pub use crate::router::{Route, Router};

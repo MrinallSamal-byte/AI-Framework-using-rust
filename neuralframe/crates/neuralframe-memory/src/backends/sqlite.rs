@@ -65,12 +65,10 @@ impl SqliteStore {
                 .await
                 .map_err(|e| MemoryError::StorageError(e.to_string()))?;
 
-                sqlx::query(
-                    "CREATE INDEX IF NOT EXISTS idx_session ON memory_entries(session_id)",
-                )
-                .execute(&pool)
-                .await
-                .map_err(|e| MemoryError::StorageError(e.to_string()))?;
+                sqlx::query("CREATE INDEX IF NOT EXISTS idx_session ON memory_entries(session_id)")
+                    .execute(&pool)
+                    .await
+                    .map_err(|e| MemoryError::StorageError(e.to_string()))?;
 
                 Ok(pool)
             })
@@ -85,9 +83,10 @@ impl MemoryStore for SqliteStore {
         let metadata_str = serde_json::to_string(&entry.metadata)
             .map_err(|e| MemoryError::SerializationError(e.to_string()))?;
         let timestamp_str = entry.timestamp.to_rfc3339();
-        let embedding_blob: Option<Vec<u8>> = entry.embedding.as_ref().map(|emb| {
-            emb.iter().flat_map(|f| f.to_le_bytes()).collect()
-        });
+        let embedding_blob: Option<Vec<u8>> = entry
+            .embedding
+            .as_ref()
+            .map(|emb| emb.iter().flat_map(|f| f.to_le_bytes()).collect());
 
         sqlx::query(
             "INSERT OR REPLACE INTO memory_entries (id, session_id, role, content, timestamp, metadata, embedding, relevance)
@@ -211,12 +210,11 @@ impl MemoryStore for SqliteStore {
 
     async fn count(&self, session: &str) -> Result<usize, MemoryError> {
         let pool = self.pool().await?;
-        let row =
-            sqlx::query("SELECT COUNT(*) as cnt FROM memory_entries WHERE session_id = ?")
-                .bind(session)
-                .fetch_one(pool)
-                .await
-                .map_err(|e| MemoryError::StorageError(e.to_string()))?;
+        let row = sqlx::query("SELECT COUNT(*) as cnt FROM memory_entries WHERE session_id = ?")
+            .bind(session)
+            .fetch_one(pool)
+            .await
+            .map_err(|e| MemoryError::StorageError(e.to_string()))?;
         let count: i64 = row.get("cnt");
         Ok(count as usize)
     }

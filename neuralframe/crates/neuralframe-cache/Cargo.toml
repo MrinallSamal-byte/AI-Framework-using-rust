@@ -20,6 +20,7 @@ redis = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 parking_lot = { workspace = true }
+blake3 = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

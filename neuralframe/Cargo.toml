@@ -71,6 +71,9 @@ eventsource-stream = "0.2"
 
 # Auth
 jsonwebtoken = "9"
+blake3 = "1"
+flate2 = { version = "1", features = ["zlib"] }
+pyo3-asyncio-0-21 = { version = "0.21", features = ["tokio-runtime"] }
 
 # Misc
 uuid = { version = "1", features = ["v4"] }

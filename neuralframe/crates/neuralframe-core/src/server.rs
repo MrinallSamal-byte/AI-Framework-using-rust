@@ -31,9 +31,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 /// Type alias for an async handler function.
-pub type HandlerFn = Arc<
-    dyn Fn(Request) -> Pin<Box<dyn Future<Output = Response> + Send>> + Send + Sync,
->;
+pub type HandlerFn =
+    Arc<dyn Fn(Request) -> Pin<Box<dyn Future<Output = Response> + Send>> + Send + Sync>;
 
 /// The NeuralFrame application builder.
 ///
@@ -66,6 +65,8 @@ pub struct NeuralFrame {
     bind_address: String,
     worker_threads: Option<usize>,
     app_name: String,
+    handler_timeout: Option<std::time::Duration>,
+    shutdown_timeout: std::time::Duration,
 }
 
 impl NeuralFrame {
@@ -77,6 +78,8 @@ impl NeuralFrame {
             bind_address: "0.0.0.0:8080".to_string(),
             worker_threads: None,
             app_name: "NeuralFrame".to_string(),
+            handler_timeout: None,
+            shutdown_timeout: std::time::Duration::from_secs(30),
         }
     }
 
@@ -166,6 +169,18 @@ impl NeuralFrame {
         self
     }
 
+    /// Set the per-handler execution timeout.
+    pub fn handler_timeout(mut self, dur: std::time::Duration) -> Self {
+        self.handler_timeout = Some(dur);
+        self
+    }
+
+    /// Set the graceful shutdown drain timeout.
+    pub fn shutdown_timeout(mut self, dur: std::time::Duration) -> Self {
+        self.shutdown_timeout = dur;
+        self
+    }
+
     /// Get a reference to the router.
     pub fn router(&self) -> &Router<HandlerFn> {
         &self.router
@@ -181,28 +196,33 @@ impl NeuralFrame {
     /// This is the core request handling logic, separated from the
     /// HTTP transport layer for testability.
     pub async fn handle_request(&self, request: Request) -> Response {
-        // Process through middleware chain
         let request = match self.middleware.process(request).await {
             Ok(req) => req,
             Err(response) => return response,
         };
 
-        // Match route
-        let method = &request.method;
-        let path = &request.path;
-
-        match self.router.match_route(method, path) {
+        let method = request.method.clone();
+        let path = request.path.clone();
+        let response = match self.router.match_route(&method, &path) {
             Some(route_match) => {
-                let mut request = request;
-                request.params = crate::extractors::PathParams::new(route_match.params);
-                let handler = route_match.handler;
-                handler(request).await
+                let mut req = request.clone();
+                req.params = crate::extractors::PathParams::new(route_match.params);
+                let handler_fut = (route_match.handler)(req);
+                if let Some(timeout) = self.handler_timeout {
+                    match tokio::time::timeout(timeout, handler_fut).await {
+                        Ok(resp) => resp,
+                        Err(_) => Response::new(503).json(serde_json::json!({
+                            "error": "Gateway Timeout",
+                            "message": "request handler timed out"
+                        })),
+                    }
+                } else {
+                    handler_fut.await
+                }
             }
-            None => Response::not_found(&format!(
-                "No route found for {} {}",
-                method, path
-            )),
-        }
+            None => Response::not_found(&format!("No route found for {} {}", method, path)),
+        };
+        self.middleware.post_process_response(&request, response)
     }
 
     /// Start the HTTP server.
@@ -223,106 +243,140 @@ impl NeuralFrame {
         );
 
         let addr: std::net::SocketAddr =
-            self.bind_address.parse().map_err(|e: std::net::AddrParseError| {
-                NeuralError::BindError {
+            self.bind_address
+                .parse()
+                .map_err(|e: std::net::AddrParseError| NeuralError::BindError {
                     address: self.bind_address.clone(),
                     source: e.to_string(),
-                }
-            })?;
+                })?;
 
         let app = Arc::new(self);
 
-        let listener = tokio::net::TcpListener::bind(addr)
-            .await
-            .map_err(|e| NeuralError::BindError {
-                address: addr.to_string(),
-                source: e.to_string(),
-            })?;
+        let listener =
+            tokio::net::TcpListener::bind(addr)
+                .await
+                .map_err(|e| NeuralError::BindError {
+                    address: addr.to_string(),
+                    source: e.to_string(),
+                })?;
 
         tracing::info!(address = %addr, "server listening");
 
+        let mut join_set: tokio::task::JoinSet<()> = tokio::task::JoinSet::new();
+
         loop {
-            let (stream, remote_addr) = listener.accept().await.map_err(|e| {
-                NeuralError::IoError(e)
-            })?;
-
-            let app = Arc::clone(&app);
-
-            tokio::spawn(async move {
-                let io = hyper_util::rt::TokioIo::new(stream);
-                let service = hyper::service::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
+            tokio::select! {
+                result = listener.accept() => {
+                    let (stream, remote_addr) = result.map_err(NeuralError::IoError)?;
                     let app = Arc::clone(&app);
-                    async move {
-                        let method = req.method().to_string();
-                        let path = req.uri().path().to_string();
-                        let query_string = req.uri().query().map(String::from);
+                    join_set.spawn(async move {
+                        let io = hyper_util::rt::TokioIo::new(stream);
+                        let service = hyper::service::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
+                            let app = Arc::clone(&app);
+                            async move {
+                                let method = req.method().to_string();
+                                let path = req.uri().path().to_string();
+                                let query_string = req.uri().query().map(String::from);
 
-                        // Extract headers
-                        let mut headers = crate::extractors::Headers::new();
-                        for (key, value) in req.headers() {
-                            if let Ok(v) = value.to_str() {
-                                headers.insert(key.as_str(), v);
+                                let mut headers = crate::extractors::Headers::new();
+                                for (key, value) in req.headers() {
+                                    if let Ok(v) = value.to_str() {
+                                        headers.insert(key.as_str(), v);
+                                    }
+                                }
+
+                                use http_body_util::BodyExt;
+                                let body_bytes = match req.into_body().collect().await {
+                                    Ok(collected) => collected.to_bytes().to_vec(),
+                                    Err(_) => Vec::new(),
+                                };
+
+                                let request = Request {
+                                    method,
+                                    path,
+                                    query_string,
+                                    headers,
+                                    params: crate::extractors::PathParams::default(),
+                                    body: body_bytes,
+                                };
+
+                                let response = app.handle_request(request).await;
+                                let mut builder =
+                                    hyper::Response::builder().status(response.status_code);
+
+                                for (key, value) in &response.headers {
+                                    builder = builder.header(key.as_str(), value.as_str());
+                                }
+
+                                let body = response.body_bytes();
+                                let hyper_response = match builder
+                                    .body(http_body_util::Full::new(bytes::Bytes::from(body)))
+                                {
+                                    Ok(response) => response,
+                                    Err(_) => hyper::Response::builder()
+                                        .status(500)
+                                        .body(http_body_util::Full::new(bytes::Bytes::from_static(
+                                            b"Internal Server Error",
+                                        )))
+                                        .unwrap_or_else(|_| {
+                                            hyper::Response::new(http_body_util::Full::new(
+                                                bytes::Bytes::from_static(b"Internal Server Error"),
+                                            ))
+                                        }),
+                                };
+
+                                Ok::<_, hyper::Error>(hyper_response)
                             }
+                        });
+
+                        if let Err(e) = hyper_util::server::conn::auto::Builder::new(
+                            hyper_util::rt::TokioExecutor::new(),
+                        )
+                        .serve_connection(io, service)
+                        .await
+                        {
+                            tracing::error!(remote_addr = %remote_addr, error = %e, "connection error");
                         }
-
-                        // Collect body
-                        use http_body_util::BodyExt;
-                        let body_bytes = req
-                            .into_body()
-                            .collect()
-                            .await
-                            .map(|collected| collected.to_bytes().to_vec())
-                            .unwrap_or_default();
-
-                        let request = Request {
-                            method,
-                            path,
-                            query_string,
-                            headers,
-                            params: crate::extractors::PathParams::default(),
-                            body: body_bytes,
-                        };
-
-                        let response = app.handle_request(request).await;
-
-                        // Convert to hyper response
-                        let mut builder =
-                            hyper::Response::builder().status(response.status_code);
-
-                        for (key, value) in &response.headers {
-                            builder = builder.header(key.as_str(), value.as_str());
-                        }
-
-                        let body = response.body_bytes();
-                        let hyper_response = builder
-                            .body(http_body_util::Full::new(bytes::Bytes::from(body)))
-                            .unwrap_or_else(|_| {
-                                hyper::Response::builder()
-                                    .status(500)
-                                    .body(http_body_util::Full::new(bytes::Bytes::from(
-                                        "Internal Server Error",
-                                    )))
-                                    .expect("building error response should not fail")
-                            });
-
-                        Ok::<_, hyper::Error>(hyper_response)
-                    }
-                });
-
-                if let Err(e) = hyper_util::server::conn::auto::Builder::new(
-                    hyper_util::rt::TokioExecutor::new(),
-                )
-                .serve_connection(io, service)
-                .await
-                {
-                    tracing::error!(
-                        remote_addr = %remote_addr,
-                        error = %e,
-                        "connection error"
-                    );
+                    });
                 }
-            });
+                _ = tokio::signal::ctrl_c() => {
+                    tracing::info!("received SIGINT, starting graceful shutdown");
+                    break;
+                }
+                _ = shutdown_signal() => {
+                    tracing::info!("received SIGTERM, starting graceful shutdown");
+                    break;
+                }
+            }
         }
+
+        drop(listener);
+        tracing::info!(
+            timeout_secs = app.shutdown_timeout.as_secs(),
+            "draining in-flight requests"
+        );
+
+        let drain_fut = async move { while join_set.join_next().await.is_some() {} };
+        match tokio::time::timeout(app.shutdown_timeout, drain_fut).await {
+            Ok(_) => tracing::info!("graceful shutdown complete"),
+            Err(_) => tracing::warn!("shutdown timeout elapsed, forcing exit"),
+        }
+        Ok(())
+    }
+}
+
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        if let Ok(mut sig) =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        {
+            sig.recv().await;
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        std::future::pending::<()>().await;
     }
 }
 
@@ -335,14 +389,11 @@ impl Default for NeuralFrame {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::middleware::LoggingMiddleware;
+    use crate::middleware::{LoggingMiddleware, TimeoutMiddleware};
 
     #[tokio::test]
     async fn test_neuralframe_route_matching() {
-        let app = NeuralFrame::new()
-            .get("/hello", |_req| async {
-                Response::ok().text("Hello!")
-            });
+        let app = NeuralFrame::new().get("/hello", |_req| async { Response::ok().text("Hello!") });
 
         let req = Request::new("GET", "/hello");
         let resp = app.handle_request(req).await;
@@ -352,10 +403,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_neuralframe_route_not_found() {
-        let app = NeuralFrame::new()
-            .get("/hello", |_req| async {
-                Response::ok().text("Hello!")
-            });
+        let app = NeuralFrame::new().get("/hello", |_req| async { Response::ok().text("Hello!") });
 
         let req = Request::new("GET", "/missing");
         let resp = app.handle_request(req).await;
@@ -364,14 +412,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_neuralframe_post_handler() {
-        let app = NeuralFrame::new()
-            .post("/echo", |req| async move {
-                let body = req.body_string().unwrap_or_default();
-                Response::ok().text(&body)
-            });
+        let app = NeuralFrame::new().post("/echo", |req| async move {
+            let body = req.body_string().unwrap_or_default();
+            Response::ok().text(&body)
+        });
 
-        let req = Request::new("POST", "/echo")
-            .with_body(b"Hello, NeuralFrame!".to_vec());
+        let req = Request::new("POST", "/echo").with_body(b"Hello, NeuralFrame!".to_vec());
         let resp = app.handle_request(req).await;
         assert_eq!(resp.status_code, 200);
         assert_eq!(resp.body_string().unwrap(), "Hello, NeuralFrame!");
@@ -379,11 +425,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_neuralframe_path_params() {
-        let app = NeuralFrame::new()
-            .get("/users/:id", |req| async move {
-                let id = req.params.get("id").cloned().unwrap_or_default();
-                Response::ok().json(serde_json::json!({"user_id": id}))
-            });
+        let app = NeuralFrame::new().get("/users/:id", |req| async move {
+            let id = req.params.get("id").cloned().unwrap_or_default();
+            Response::ok().json(serde_json::json!({"user_id": id}))
+        });
 
         let req = Request::new("GET", "/users/42");
         let resp = app.handle_request(req).await;
@@ -401,18 +446,14 @@ mod tests {
             text: String,
         }
 
-        let app = NeuralFrame::new()
-            .post("/chat", |req| async move {
-                match req.json::<Message>() {
-                    Ok(json) => {
-                        Response::ok().json(serde_json::json!({"echo": json.text}))
-                    }
-                    Err(_) => Response::bad_request("Invalid JSON"),
-                }
-            });
+        let app = NeuralFrame::new().post("/chat", |req| async move {
+            match req.json::<Message>() {
+                Ok(json) => Response::ok().json(serde_json::json!({"echo": json.text})),
+                Err(_) => Response::bad_request("Invalid JSON"),
+            }
+        });
 
-        let req = Request::new("POST", "/chat")
-            .with_body(br#"{"text":"Hello!"}"#.to_vec());
+        let req = Request::new("POST", "/chat").with_body(br#"{"text":"Hello!"}"#.to_vec());
         let resp = app.handle_request(req).await;
         assert_eq!(resp.status_code, 200);
         let body = resp.body_string().unwrap();
@@ -423,9 +464,7 @@ mod tests {
     async fn test_neuralframe_with_middleware() {
         let app = NeuralFrame::new()
             .middleware(LoggingMiddleware::new())
-            .get("/test", |_req| async {
-                Response::ok().text("OK")
-            });
+            .get("/test", |_req| async { Response::ok().text("OK") });
 
         let req = Request::new("GET", "/test");
         let resp = app.handle_request(req).await;
@@ -435,21 +474,13 @@ mod tests {
     #[tokio::test]
     async fn test_neuralframe_multiple_methods() {
         let app = NeuralFrame::new()
-            .get("/resource", |_req| async {
-                Response::ok().text("GET")
-            })
+            .get("/resource", |_req| async { Response::ok().text("GET") })
             .post("/resource", |_req| async {
                 Response::created().text("POST")
             })
-            .put("/resource", |_req| async {
-                Response::ok().text("PUT")
-            })
-            .delete("/resource", |_req| async {
-                Response::no_content()
-            })
-            .patch("/resource", |_req| async {
-                Response::ok().text("PATCH")
-            });
+            .put("/resource", |_req| async { Response::ok().text("PUT") })
+            .delete("/resource", |_req| async { Response::no_content() })
+            .patch("/resource", |_req| async { Response::ok().text("PATCH") });
 
         let resp = app.handle_request(Request::new("GET", "/resource")).await;
         assert_eq!(resp.body_string().unwrap(), "GET");
@@ -457,7 +488,9 @@ mod tests {
         let resp = app.handle_request(Request::new("POST", "/resource")).await;
         assert_eq!(resp.status_code, 201);
 
-        let resp = app.handle_request(Request::new("DELETE", "/resource")).await;
+        let resp = app
+            .handle_request(Request::new("DELETE", "/resource"))
+            .await;
         assert_eq!(resp.status_code, 204);
     }
 
@@ -475,13 +508,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_middleware_short_circuit() {
-        use crate::middleware::{CorsMiddleware};
+        use crate::middleware::CorsMiddleware;
 
         let app = NeuralFrame::new()
             .middleware(CorsMiddleware::permissive())
-            .get("/api/data", |_req| async {
-                Response::ok().text("data")
-            });
+            .get("/api/data", |_req| async { Response::ok().text("data") });
 
         // OPTIONS preflight should be short-circuited by CORS
         let req = Request::new("OPTIONS", "/api/data");
@@ -492,5 +523,34 @@ mod tests {
         let req = Request::new("GET", "/api/data");
         let resp = app.handle_request(req).await;
         assert_eq!(resp.status_code, 200);
+    }
+
+    #[tokio::test]
+    async fn test_handler_timeout_returns_503() {
+        let app = NeuralFrame::new()
+            .handler_timeout(std::time::Duration::from_millis(50))
+            .get("/slow", |_req| async {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                Response::ok().text("done")
+            });
+        let resp = app.handle_request(Request::new("GET", "/slow")).await;
+        assert_eq!(resp.status_code, 503);
+    }
+
+    #[tokio::test]
+    async fn test_timeout_header_added_by_middleware() {
+        let app = NeuralFrame::new()
+            .middleware(TimeoutMiddleware::seconds(30))
+            .get("/ok", |req| async move {
+                Response::ok().text(
+                    req.headers
+                        .get("x-timeout-ms")
+                        .map(String::as_str)
+                        .unwrap_or_default(),
+                )
+            });
+        let resp = app.handle_request(Request::new("GET", "/ok")).await;
+        assert_eq!(resp.status_code, 200);
+        assert_eq!(resp.body_string().as_deref(), Some("30000"));
     }
 }

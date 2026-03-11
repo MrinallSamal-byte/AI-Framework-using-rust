@@ -155,10 +155,7 @@ mod tests {
             limit: 100,
             window_secs: 60,
         };
-        assert_eq!(
-            err.to_string(),
-            "rate limit exceeded: 100 requests per 60s"
-        );
+        assert_eq!(err.to_string(), "rate limit exceeded: 100 requests per 60s");
     }
 
     #[test]

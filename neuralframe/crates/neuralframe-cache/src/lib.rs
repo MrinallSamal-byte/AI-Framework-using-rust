@@ -23,7 +23,10 @@ impl std::fmt::Display for CacheError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Miss => write!(f, "cache miss"),
-            Self::BelowThreshold { similarity, threshold } => {
+            Self::BelowThreshold {
+                similarity,
+                threshold,
+            } => {
                 write!(f, "similarity {} below threshold {}", similarity, threshold)
             }
             Self::StorageError(msg) => write!(f, "cache storage error: {}", msg),
@@ -88,6 +91,7 @@ pub struct SemanticCache {
 struct CacheEntry {
     response: CachedResponse,
     created: Instant,
+    last_accessed: Instant,
     hits: u64,
 }
 
@@ -108,10 +112,12 @@ impl SemanticCache {
     /// Look up a response by exact prompt match.
     pub fn get_exact(&self, prompt: &str) -> Option<CachedResponse> {
         let key = Self::hash_prompt(prompt);
-        self.entries.get(&key).and_then(|entry| {
+        self.entries.get_mut(&key).and_then(|mut entry| {
             if entry.created.elapsed() > self.config.ttl {
                 None
             } else {
+                entry.last_accessed = Instant::now();
+                entry.hits += 1;
                 Some(entry.response.clone())
             }
         })
@@ -119,7 +125,7 @@ impl SemanticCache {
 
     /// Look up a response by semantic similarity.
     pub fn get_semantic(&self, embedding: &[f32]) -> Option<CachedResponse> {
-        let mut best_match: Option<(f32, CachedResponse)> = None;
+        let mut best_match: Option<(f32, String, CachedResponse)> = None;
 
         for entry in self.entries.iter() {
             if entry.created.elapsed() > self.config.ttl {
@@ -127,24 +133,26 @@ impl SemanticCache {
             }
 
             let similarity = cosine_similarity(embedding, &entry.response.embedding);
-            if similarity >= self.config.similarity_threshold {
-                if best_match.as_ref().map_or(true, |(s, _)| similarity > *s) {
-                    best_match = Some((similarity, entry.response.clone()));
-                }
+            if similarity >= self.config.similarity_threshold
+                && best_match.as_ref().is_none_or(|(s, _, _)| similarity > *s)
+            {
+                best_match = Some((similarity, entry.key().clone(), entry.response.clone()));
             }
         }
 
-        best_match.map(|(_, response)| response)
+        if let Some((_, key, response)) = best_match {
+            if let Some(mut entry) = self.entries.get_mut(&key) {
+                entry.last_accessed = Instant::now();
+                entry.hits += 1;
+            }
+            Some(response)
+        } else {
+            None
+        }
     }
 
     /// Store a prompt-response pair in the cache.
-    pub fn store(
-        &self,
-        prompt: &str,
-        response: &str,
-        embedding: Vec<f32>,
-        model: &str,
-    ) {
+    pub fn store(&self, prompt: &str, response: &str, embedding: Vec<f32>, model: &str) {
         // Evict if at capacity
         if self.entries.len() >= self.config.max_entries {
             self.evict_lru();
@@ -160,11 +168,15 @@ impl SemanticCache {
             created_at: chrono::Utc::now(),
         };
 
-        self.entries.insert(key, CacheEntry {
-            response: cached,
-            created: Instant::now(),
-            hits: 0,
-        });
+        self.entries.insert(
+            key,
+            CacheEntry {
+                response: cached,
+                created: Instant::now(),
+                last_accessed: Instant::now(),
+                hits: 0,
+            },
+        );
     }
 
     /// Record a cache hit.
@@ -172,14 +184,14 @@ impl SemanticCache {
         let key = Self::hash_prompt(prompt);
         if let Some(mut entry) = self.entries.get_mut(&key) {
             entry.hits += 1;
+            entry.last_accessed = Instant::now();
         }
     }
 
     /// Clear expired entries.
     pub fn evict_expired(&self) {
-        self.entries.retain(|_, entry| {
-            entry.created.elapsed() <= self.config.ttl
-        });
+        self.entries
+            .retain(|_, entry| entry.created.elapsed() <= self.config.ttl);
     }
 
     /// Evict least recently used entry.
@@ -187,7 +199,7 @@ impl SemanticCache {
         if let Some(oldest_key) = self
             .entries
             .iter()
-            .min_by_key(|entry| entry.hits)
+            .min_by_key(|entry| entry.last_accessed)
             .map(|entry| entry.key().clone())
         {
             self.entries.remove(&oldest_key);
@@ -212,10 +224,7 @@ impl SemanticCache {
 
     /// Hash a prompt string for exact match lookups.
     fn hash_prompt(prompt: &str) -> String {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        prompt.hash(&mut hasher);
-        format!("{:x}", hasher.finish())
+        blake3::hash(prompt.as_bytes()).to_hex().to_string()
     }
 }
 
@@ -260,12 +269,7 @@ mod tests {
     #[test]
     fn test_exact_match() {
         let cache = SemanticCache::default_cache();
-        cache.store(
-            "Hello",
-            "Hi there!",
-            vec![1.0, 0.0, 0.0],
-            "gpt-4o",
-        );
+        cache.store("Hello", "Hi there!", vec![1.0, 0.0, 0.0], "gpt-4o");
 
         let result = cache.get_exact("Hello");
         assert!(result.is_some());
@@ -285,12 +289,7 @@ mod tests {
             ..Default::default()
         });
 
-        cache.store(
-            "Hello",
-            "Hi!",
-            vec![1.0, 0.0, 0.0],
-            "gpt-4o",
-        );
+        cache.store("Hello", "Hi!", vec![1.0, 0.0, 0.0], "gpt-4o");
 
         // Exact same embedding should hit
         let result = cache.get_semantic(&[1.0, 0.0, 0.0]);
@@ -313,6 +312,20 @@ mod tests {
         cache.store("c", "3", vec![3.0], "m");
 
         assert!(cache.entries.len() <= 2);
+    }
+
+    #[test]
+    fn test_lru_evicts_least_recently_accessed() {
+        let cache = SemanticCache::new(CacheConfig {
+            max_entries: 2,
+            ..Default::default()
+        });
+        cache.store("A", "1", vec![1.0, 0.0, 0.0], "m");
+        cache.store("B", "2", vec![0.0, 1.0, 0.0], "m");
+        assert!(cache.get_exact("A").is_some());
+        cache.store("C", "3", vec![0.0, 0.0, 1.0], "m");
+        assert!(cache.get_exact("A").is_some());
+        assert!(cache.get_exact("B").is_none());
     }
 
     #[test]

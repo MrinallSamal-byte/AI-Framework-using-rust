@@ -60,8 +60,8 @@ impl RetryConfig {
 
     /// Calculate the delay for a given attempt (0-based).
     pub fn delay_for_attempt(&self, attempt: u32) -> Duration {
-        let base = self.initial_delay.as_millis() as f64
-            * self.backoff_multiplier.powi(attempt as i32);
+        let base =
+            self.initial_delay.as_millis() as f64 * self.backoff_multiplier.powi(attempt as i32);
         let capped = base.min(self.max_delay.as_millis() as f64);
 
         if self.jitter {
@@ -121,60 +121,87 @@ impl ResilientClient {
 
     /// Complete a request with retry and failover logic.
     pub async fn complete(&self, req: CompletionRequest) -> Result<CompletionResponse, LLMError> {
-        // Try primary provider with retries
+        match self.try_with_retries(&*self.primary, req.clone()).await {
+            Ok(response) => Ok(response),
+            Err(primary_err) => {
+                if self.fallbacks.is_empty() {
+                    Err(primary_err)
+                } else {
+                    tracing::warn!(
+                        provider = self.primary.name(),
+                        error = %primary_err,
+                        "primary provider failed, trying fallbacks"
+                    );
+
+                    let mut errors = vec![primary_err];
+
+                    for fallback in &self.fallbacks {
+                        match self.try_with_retries(&**fallback, req.clone()).await {
+                            Ok(response) => {
+                                tracing::info!(
+                                    provider = fallback.name(),
+                                    "fallback provider succeeded"
+                                );
+                                return Ok(response);
+                            }
+                            Err(err) => {
+                                tracing::warn!(
+                                    provider = fallback.name(),
+                                    error = %err,
+                                    "fallback provider failed"
+                                );
+                                errors.push(err);
+                            }
+                        }
+                    }
+
+                    Err(LLMError::AllProvidersFailed(errors))
+                }
+            }
+        }
+    }
+
+    /// Generate embeddings with retry and failover logic.
+    pub async fn embed(&self, text: &str, model: &str) -> Result<Vec<f32>, LLMError> {
         match self
-            .try_with_retries(&*self.primary, req.clone())
+            .try_embed_with_retries(&*self.primary, text, model)
             .await
         {
-            Ok(response) => return Ok(response),
+            Ok(v) => Ok(v),
             Err(primary_err) => {
                 if self.fallbacks.is_empty() {
                     return Err(primary_err);
                 }
-
-                tracing::warn!(
-                    provider = self.primary.name(),
-                    error = %primary_err,
-                    "primary provider failed, trying fallbacks"
-                );
-
                 let mut errors = vec![primary_err];
-
-                // Try each fallback
                 for fallback in &self.fallbacks {
-                    match self
-                        .try_with_retries(&**fallback, req.clone())
-                        .await
-                    {
-                        Ok(response) => {
-                            tracing::info!(
-                                provider = fallback.name(),
-                                "fallback provider succeeded"
-                            );
-                            return Ok(response);
-                        }
-                        Err(err) => {
-                            tracing::warn!(
-                                provider = fallback.name(),
-                                error = %err,
-                                "fallback provider failed"
-                            );
-                            errors.push(err);
-                        }
+                    match self.try_embed_with_retries(&**fallback, text, model).await {
+                        Ok(v) => return Ok(v),
+                        Err(e) => errors.push(e),
                     }
                 }
-
                 Err(LLMError::AllProvidersFailed(errors))
             }
         }
     }
 
-    /// Stream tokens with the primary provider (no failover for streams).
+    /// Stream tokens with failover across providers.
     pub async fn stream(
         &self,
         req: CompletionRequest,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<Token, LLMError>> + Send>>, LLMError> {
-        self.primary.stream(req).await
+        match self.primary.stream(req.clone()).await {
+            Ok(s) => Ok(s),
+            Err(primary_err) => {
+                let mut errors = vec![primary_err];
+                for fallback in &self.fallbacks {
+                    match fallback.stream(req.clone()).await {
+                        Ok(s) => return Ok(s),
+                        Err(e) => errors.push(e),
+                    }
+                }
+                Err(LLMError::AllProvidersFailed(errors))
+            }
+        }
     }
 
     /// Try a request with retries against a single provider.
@@ -214,9 +241,31 @@ impl ResilientClient {
             }
         }
 
-        Err(last_error.unwrap_or(LLMError::ProviderUnavailable(
-            provider.name().to_string(),
-        )))
+        Err(last_error.unwrap_or(LLMError::ProviderUnavailable(provider.name().to_string())))
+    }
+
+    async fn try_embed_with_retries(
+        &self,
+        provider: &dyn LLMProvider,
+        text: &str,
+        model: &str,
+    ) -> Result<Vec<f32>, LLMError> {
+        let mut last_error = None;
+        for attempt in 0..=self.retry_config.max_retries {
+            if attempt > 0 {
+                tokio::time::sleep(self.retry_config.delay_for_attempt(attempt - 1)).await;
+            }
+            match provider.embed(text, model).await {
+                Ok(v) => return Ok(v),
+                Err(err) => {
+                    if !Self::is_retryable(&err) {
+                        return Err(err);
+                    }
+                    last_error = Some(err);
+                }
+            }
+        }
+        Err(last_error.unwrap_or(LLMError::ProviderUnavailable(provider.name().to_string())))
     }
 
     /// Check if an error is retryable.
@@ -234,6 +283,72 @@ impl ResilientClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::LLMProvider;
+    use crate::types::{CompletionResponse, FinishReason, Usage};
+
+    #[derive(Debug)]
+    struct MockFailProvider;
+
+    #[async_trait::async_trait]
+    impl LLMProvider for MockFailProvider {
+        async fn complete(&self, _req: CompletionRequest) -> Result<CompletionResponse, LLMError> {
+            Err(LLMError::ProviderUnavailable(self.name().to_string()))
+        }
+
+        async fn stream(
+            &self,
+            _req: CompletionRequest,
+        ) -> Result<Pin<Box<dyn Stream<Item = Result<Token, LLMError>> + Send>>, LLMError> {
+            Err(LLMError::StreamError("stream failed".into()))
+        }
+
+        async fn embed(&self, _text: &str, _model: &str) -> Result<Vec<f32>, LLMError> {
+            Err(LLMError::ProviderUnavailable(self.name().to_string()))
+        }
+
+        fn name(&self) -> &str {
+            "fail"
+        }
+
+        fn models(&self) -> Vec<String> {
+            vec!["fail".to_string()]
+        }
+    }
+
+    #[derive(Debug)]
+    struct MockSuccessProvider;
+
+    #[async_trait::async_trait]
+    impl LLMProvider for MockSuccessProvider {
+        async fn complete(&self, _req: CompletionRequest) -> Result<CompletionResponse, LLMError> {
+            Ok(CompletionResponse {
+                content: "ok".to_string(),
+                model: "mock".to_string(),
+                usage: Usage::default(),
+                finish_reason: Some(FinishReason::Stop),
+                tool_calls: vec![],
+            })
+        }
+
+        async fn stream(
+            &self,
+            _req: CompletionRequest,
+        ) -> Result<Pin<Box<dyn Stream<Item = Result<Token, LLMError>> + Send>>, LLMError> {
+            Ok(Box::pin(tokio_stream::iter(vec![Ok(Token::text("ok"))])))
+        }
+
+        async fn embed(&self, _text: &str, _model: &str) -> Result<Vec<f32>, LLMError> {
+            Ok(vec![0.1, 0.2, 0.3])
+        }
+
+        fn name(&self) -> &str {
+            "success"
+        }
+
+        fn models(&self) -> Vec<String> {
+            vec!["success".to_string()]
+        }
+    }
 
     #[test]
     fn test_retry_config_default() {
@@ -296,5 +411,39 @@ mod tests {
             status: 400,
             message: "".into()
         }));
+    }
+
+    #[tokio::test]
+    async fn test_resilient_embed_primary_success() {
+        let client = ResilientClient::new(MockSuccessProvider).with_retry(RetryConfig::no_retry());
+        let result = client.embed("hello", "mock").await;
+        assert_eq!(result.expect("embedding"), vec![0.1, 0.2, 0.3]);
+    }
+
+    #[tokio::test]
+    async fn test_resilient_embed_falls_over_to_secondary() {
+        let client = ResilientClient::new(MockFailProvider)
+            .with_retry(RetryConfig::no_retry())
+            .with_fallback(MockSuccessProvider);
+        let result = client.embed("hello", "mock").await;
+        assert_eq!(result.expect("embedding"), vec![0.1, 0.2, 0.3]);
+    }
+
+    #[tokio::test]
+    async fn test_resilient_embed_all_fail_returns_all_providers_failed() {
+        let client = ResilientClient::new(MockFailProvider)
+            .with_retry(RetryConfig::no_retry())
+            .with_fallback(MockFailProvider);
+        let result = client.embed("hello", "mock").await;
+        assert!(matches!(result, Err(LLMError::AllProvidersFailed(_))));
+    }
+
+    #[tokio::test]
+    async fn test_resilient_stream_failover_to_secondary() {
+        let client = ResilientClient::new(MockFailProvider)
+            .with_retry(RetryConfig::no_retry())
+            .with_fallback(MockSuccessProvider);
+        let stream = client.stream(CompletionRequest::new("mock")).await;
+        assert!(stream.is_ok());
     }
 }

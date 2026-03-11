@@ -155,10 +155,7 @@ impl ToolRegistry {
     }
 
     /// Execute multiple tool calls in parallel.
-    pub async fn execute_parallel(
-        &self,
-        calls: Vec<crate::types::ToolCall>,
-    ) -> Vec<ToolResult> {
+    pub async fn execute_parallel(&self, calls: Vec<crate::types::ToolCall>) -> Vec<ToolResult> {
         let mut handles = Vec::new();
 
         for call in calls {
@@ -169,20 +166,10 @@ impl ToolRegistry {
 
                 match registry.get(&call.name) {
                     Some(tool) => match tool.execute(arguments).await {
-                        Ok(content) => {
-                            ToolResult::success(&call.id, &call.name, &content)
-                        }
-                        Err(e) => ToolResult::failure(
-                            &call.id,
-                            &call.name,
-                            &e.to_string(),
-                        ),
+                        Ok(content) => ToolResult::success(&call.id, &call.name, &content),
+                        Err(e) => ToolResult::failure(&call.id, &call.name, &e.to_string()),
                     },
-                    None => ToolResult::failure(
-                        &call.id,
-                        &call.name,
-                        "tool not found",
-                    ),
+                    None => ToolResult::failure(&call.id, &call.name, "tool not found"),
                 }
             });
             handles.push(handle);

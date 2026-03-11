@@ -2,9 +2,7 @@
 
 use crate::error::LLMError;
 use crate::providers::LLMProvider;
-use crate::types::{
-    CompletionRequest, CompletionResponse, FinishReason, Token, ToolCall, Usage,
-};
+use crate::types::{CompletionRequest, CompletionResponse, FinishReason, Token, ToolCall, Usage};
 use async_trait::async_trait;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -272,11 +270,14 @@ impl LLMProvider for OpenAIProvider {
             _ => FinishReason::Stop,
         });
 
-        let usage = openai_resp.usage.map(|u| Usage {
-            prompt_tokens: u.prompt_tokens,
-            completion_tokens: u.completion_tokens,
-            total_tokens: u.total_tokens,
-        }).unwrap_or_default();
+        let usage = openai_resp
+            .usage
+            .map(|u| Usage {
+                prompt_tokens: u.prompt_tokens,
+                completion_tokens: u.completion_tokens,
+                total_tokens: u.total_tokens,
+            })
+            .unwrap_or_default();
 
         Ok(CompletionResponse {
             content,
@@ -327,9 +328,7 @@ impl LLMProvider for OpenAIProvider {
                             if data == "[DONE]" {
                                 return Some(Ok(Token::done()));
                             }
-                            if let Ok(chunk) =
-                                serde_json::from_str::<OpenAIResponse>(data)
-                            {
+                            if let Ok(chunk) = serde_json::from_str::<OpenAIResponse>(data) {
                                 if let Some(choice) = chunk.choices.first() {
                                     if let Some(delta) = &choice.delta {
                                         if let Some(content) = &delta.content {
@@ -386,11 +385,10 @@ impl LLMProvider for OpenAIProvider {
             embedding: Vec<f32>,
         }
 
-        let resp: EmbeddingResponse =
-            response.json().await.map_err(|e| LLMError::ParseError {
-                context: "embedding response".into(),
-                source: e.to_string(),
-            })?;
+        let resp: EmbeddingResponse = response.json().await.map_err(|e| LLMError::ParseError {
+            context: "embedding response".into(),
+            source: e.to_string(),
+        })?;
 
         resp.data
             .into_iter()

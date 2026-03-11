@@ -3,7 +3,7 @@
 use crate::{MemoryEntry, MemoryError, MemoryStore};
 use async_trait::async_trait;
 use sqlx::postgres::PgPoolOptions;
-use sqlx::{Row, PgPool};
+use sqlx::{PgPool, Row};
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::OnceCell;
@@ -196,10 +196,7 @@ impl MemoryStore for PostgresStore {
 
     async fn clear(&self, session: &str) -> Result<(), MemoryError> {
         let pool = self.pool().await?;
-        let query_str = format!(
-            "DELETE FROM {} WHERE session_id = $1",
-            self.table_name
-        );
+        let query_str = format!("DELETE FROM {} WHERE session_id = $1", self.table_name);
         sqlx::query(&query_str)
             .bind(session)
             .execute(pool)

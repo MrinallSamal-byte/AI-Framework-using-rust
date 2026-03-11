@@ -160,10 +160,8 @@ impl Response {
     pub fn sse_stream(mut self, events: impl IntoIterator<Item = impl Into<String>>) -> Self {
         let collected: Vec<String> = events.into_iter().map(|e| e.into()).collect();
         self.body = ResponseBody::SseEvents(collected);
-        self.headers.insert(
-            "Content-Type".to_string(),
-            "text/event-stream".to_string(),
-        );
+        self.headers
+            .insert("Content-Type".to_string(), "text/event-stream".to_string());
         self.headers
             .insert("Cache-Control".to_string(), "no-cache".to_string());
         self.headers
@@ -225,9 +223,10 @@ impl Response {
             ResponseBody::Empty => 0,
             ResponseBody::Text(text) => text.len(),
             ResponseBody::Bytes(bytes) => bytes.len(),
-            ResponseBody::SseEvents(events) => {
-                events.iter().map(|e| "data: ".len() + e.len() + "\n\n".len()).sum()
-            }
+            ResponseBody::SseEvents(events) => events
+                .iter()
+                .map(|e| "data: ".len() + e.len() + "\n\n".len())
+                .sum(),
         }
     }
 }
@@ -399,9 +398,7 @@ mod tests {
 
     #[test]
     fn test_response_with_header() {
-        let resp = Response::ok()
-            .with_header("X-Custom", "value")
-            .text("data");
+        let resp = Response::ok().with_header("X-Custom", "value").text("data");
         assert_eq!(resp.headers.get("X-Custom").unwrap(), "value");
     }
 

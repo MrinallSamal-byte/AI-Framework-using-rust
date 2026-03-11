@@ -17,9 +17,7 @@ use neuralframe_core::prelude::*;
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter("info")
-        .init();
+    tracing_subscriber::fmt().with_env_filter("info").init();
 
     tracing::info!("Starting NeuralFrame Multi-Agent System");
 
@@ -76,20 +74,16 @@ async fn main() {
 
     let mut plan = Plan::new("Research and write about NeuralFrame's architecture");
     let step0 = plan.add_step(
-        PlanStep::new("Research NeuralFrame's core components")
-            .with_tool("web_search", serde_json::json!({"query": "NeuralFrame Rust AI framework"})),
+        PlanStep::new("Research NeuralFrame's core components").with_tool(
+            "web_search",
+            serde_json::json!({"query": "NeuralFrame Rust AI framework"}),
+        ),
     );
-    let step1 = plan.add_step(
-        PlanStep::new("Analyze the architecture patterns used").depends_on(step0),
-    );
-    let _step2 = plan.add_step(
-        PlanStep::new("Write a summary document").depends_on(step1),
-    );
+    let step1 =
+        plan.add_step(PlanStep::new("Analyze the architecture patterns used").depends_on(step0));
+    let _step2 = plan.add_step(PlanStep::new("Write a summary document").depends_on(step1));
 
-    tracing::info!(
-        steps = plan.steps.len(),
-        "execution plan created"
-    );
+    tracing::info!(steps = plan.steps.len(), "execution plan created");
 
     // ── Execute sequential pipeline ────────────────────────────────
 
@@ -139,7 +133,12 @@ async fn main() {
             println!("  Parallel Execution Results");
             println!("═══════════════════════════════════════════");
             for (i, result) in parallel_results.iter().enumerate() {
-                println!("Agent {}: {} ({}ms)", i + 1, result.answer, result.total_duration_ms);
+                println!(
+                    "Agent {}: {} ({}ms)",
+                    i + 1,
+                    result.answer,
+                    result.total_duration_ms
+                );
             }
         }
         Err(e) => {

@@ -13,8 +13,8 @@
 //! ```
 
 use neuralframe_core::prelude::*;
+use neuralframe_prompt::{PromptBuilder, PromptTemplate};
 use neuralframe_vector::{DistanceMetric, VectorStore};
-use neuralframe_prompt::{PromptTemplate, PromptBuilder};
 
 /// A document to be ingested into the RAG pipeline.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,9 +54,7 @@ impl RagState {
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter("info")
-        .init();
+    tracing_subscriber::fmt().with_env_filter("info").init();
 
     tracing::info!("Starting NeuralFrame RAG Pipeline");
 
@@ -70,7 +68,8 @@ async fn main() {
             title: "Rust Programming".into(),
             content: "Rust is a systems programming language focused on safety, \
                       speed, and concurrency. It achieves memory safety without \
-                      garbage collection through its ownership system.".into(),
+                      garbage collection through its ownership system."
+                .into(),
             source: "rust-lang.org".into(),
         },
         Document {
@@ -79,7 +78,8 @@ async fn main() {
             content: "NeuralFrame is an AI-native web framework built in Rust. \
                       It provides first-class support for LLMs, agents, memory, \
                       and streaming. The core uses a radix tree router and \
-                      async middleware pipeline.".into(),
+                      async middleware pipeline."
+                .into(),
             source: "neuralframe.dev".into(),
         },
         Document {
@@ -88,7 +88,8 @@ async fn main() {
             content: "Vector databases store high-dimensional vectors and enable \
                       fast similarity search. HNSW (Hierarchical Navigable Small \
                       World) is a popular algorithm for approximate nearest \
-                      neighbor search with logarithmic complexity.".into(),
+                      neighbor search with logarithmic complexity."
+                .into(),
             source: "research-paper".into(),
         },
     ];
@@ -102,7 +103,8 @@ async fn main() {
             embedding[j] = ((i * 100 + j) as f32).sin() * 0.5 + 0.5;
         }
 
-        state.vector_store
+        state
+            .vector_store
             .insert(
                 &doc.id,
                 embedding,
@@ -151,7 +153,9 @@ async fn main() {
                 top_k: usize,
             }
 
-            fn default_k() -> usize { 3 }
+            fn default_k() -> usize {
+                3
+            }
 
             match req.json::<QueryRequest>() {
                 Ok(query) => {
@@ -191,16 +195,16 @@ async fn main() {
                 limit: usize,
             }
 
-            fn default_limit() -> usize { 5 }
+            fn default_limit() -> usize {
+                5
+            }
 
             match req.json::<SearchRequest>() {
-                Ok(search) => {
-                    Response::ok().json(serde_json::json!({
-                        "query": search.query,
-                        "results": [],
-                        "note": "In production, this performs vector similarity search"
-                    }))
-                }
+                Ok(search) => Response::ok().json(serde_json::json!({
+                    "query": search.query,
+                    "results": [],
+                    "note": "In production, this performs vector similarity search"
+                })),
                 Err(_) => Response::bad_request("Invalid JSON"),
             }
         })

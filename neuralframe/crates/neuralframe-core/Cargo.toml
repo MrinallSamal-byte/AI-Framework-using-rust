@@ -28,14 +28,21 @@ dashmap = { workspace = true }
 parking_lot = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
+flate2 = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
 criterion = { workspace = true }
-neuralframe-vector = { path = "../neuralframe-vector" }
-neuralframe-prompt = { path = "../neuralframe-prompt" }
-neuralframe-agents = { path = "../neuralframe-agents" }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+tempfile = "3"
 neuralframe-llm = { path = "../neuralframe-llm" }
+neuralframe-vector = { path = "../neuralframe-vector" }
+neuralframe-memory = { path = "../neuralframe-memory" }
+neuralframe-agents = { path = "../neuralframe-agents" }
+neuralframe-auth = { path = "../neuralframe-auth" }
+neuralframe-cache = { path = "../neuralframe-cache" }
+neuralframe-prompt = { path = "../neuralframe-prompt" }
 
 [[example]]
 name = "chatbot_server"
@@ -48,3 +55,27 @@ path = "../../examples/rag_pipeline.rs"
 [[example]]
 name = "multi_agent"
 path = "../../examples/multi_agent.rs"
+
+[[test]]
+name = "integration_core"
+path = "../../tests/integration_core.rs"
+
+[[test]]
+name = "integration_vector"
+path = "../../tests/integration_vector.rs"
+
+[[test]]
+name = "integration_memory"
+path = "../../tests/integration_memory.rs"
+
+[[test]]
+name = "integration_agents"
+path = "../../tests/integration_agents.rs"
+
+[[test]]
+name = "integration_auth"
+path = "../../tests/integration_auth.rs"
+
+[[test]]
+name = "integration_cache"
+path = "../../tests/integration_cache.rs"

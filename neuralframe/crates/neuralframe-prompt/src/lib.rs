@@ -145,9 +145,9 @@ impl PromptTemplate {
             if let Some(close) = result[open..].find("}}") {
                 let close = open + close;
                 let var_name = result[open + 2..close].trim();
-                let value = variables.get(var_name).ok_or_else(|| {
-                    PromptError::MissingVariable(var_name.to_string())
-                })?;
+                let value = variables
+                    .get(var_name)
+                    .ok_or_else(|| PromptError::MissingVariable(var_name.to_string()))?;
                 result = format!("{}{}{}", &result[..open], value, &result[close + 2..]);
                 start = open + value.len();
             } else {
@@ -169,9 +169,9 @@ impl PromptTemplate {
         let mut result = input.to_string();
 
         while let Some(if_start) = result.find("{% if ") {
-            let if_end = result[if_start..].find("%}").ok_or_else(|| {
-                PromptError::SyntaxError("unclosed {% if %} tag".to_string())
-            })?;
+            let if_end = result[if_start..]
+                .find("%}")
+                .ok_or_else(|| PromptError::SyntaxError("unclosed {% if %} tag".to_string()))?;
             let if_end = if_start + if_end + 2;
 
             let condition = result[if_start + 6..if_end - 2].trim();
@@ -183,9 +183,9 @@ impl PromptTemplate {
             };
 
             let endif_tag = "{% endif %}";
-            let endif_pos = result[if_end..].find(endif_tag).ok_or_else(|| {
-                PromptError::SyntaxError("missing {% endif %}".to_string())
-            })?;
+            let endif_pos = result[if_end..]
+                .find(endif_tag)
+                .ok_or_else(|| PromptError::SyntaxError("missing {% endif %}".to_string()))?;
             let endif_pos = if_end + endif_pos;
 
             let body = &result[if_end..endif_pos];
@@ -221,9 +221,9 @@ impl PromptTemplate {
         let mut result = input.to_string();
 
         while let Some(for_start) = result.find("{% for ") {
-            let for_end = result[for_start..].find("%}").ok_or_else(|| {
-                PromptError::SyntaxError("unclosed {% for %} tag".to_string())
-            })?;
+            let for_end = result[for_start..]
+                .find("%}")
+                .ok_or_else(|| PromptError::SyntaxError("unclosed {% for %} tag".to_string()))?;
             let for_end = for_start + for_end + 2;
 
             let for_expr = result[for_start + 7..for_end - 2].trim();
@@ -237,9 +237,9 @@ impl PromptTemplate {
             let list_var = parts[1].trim();
 
             let endfor_tag = "{% endfor %}";
-            let endfor_pos = result[for_end..].find(endfor_tag).ok_or_else(|| {
-                PromptError::SyntaxError("missing {% endfor %}".to_string())
-            })?;
+            let endfor_pos = result[for_end..]
+                .find(endfor_tag)
+                .ok_or_else(|| PromptError::SyntaxError("missing {% endfor %}".to_string()))?;
             let endfor_pos = for_end + endfor_pos;
 
             let body = &result[for_end..endfor_pos];
@@ -410,9 +410,9 @@ impl PromptRegistry {
 
     /// Get a specific version of a template.
     pub fn get_version(&self, name: &str, version: &str) -> Option<PromptTemplate> {
-        self.templates.get(name).and_then(|versions| {
-            versions.iter().find(|t| t.version == version).cloned()
-        })
+        self.templates
+            .get(name)
+            .and_then(|versions| versions.iter().find(|t| t.version == version).cloned())
     }
 
     /// Select a random template for A/B testing.
@@ -441,23 +441,45 @@ impl Default for PromptRegistry {
     }
 }
 
-/// Estimate token count for a string (rough approximation: ~4 chars per token).
+/// Count tokens for a string using the selected model tokenizer when available.
+pub fn count_tokens(text: &str, model: &str) -> usize {
+    tiktoken_rs::get_bpe_from_model(model)
+        .or_else(|_| tiktoken_rs::get_bpe_from_model("gpt-4"))
+        .map(|bpe| bpe.encode_with_special_tokens(text).len())
+        .unwrap_or_else(|_| (text.len() as f64 / 4.0).ceil() as usize)
+}
+
+/// Estimate token count for a string.
 pub fn estimate_tokens(text: &str) -> usize {
-    (text.len() as f64 / 4.0).ceil() as usize
+    count_tokens(text, "gpt-4")
 }
 
 /// Truncate text to fit within a token limit.
 pub fn truncate_to_tokens(text: &str, max_tokens: usize) -> String {
-    let max_chars = max_tokens * 4;
-    if text.len() <= max_chars {
-        text.to_string()
-    } else {
-        let truncated = &text[..max_chars.min(text.len())];
-        // Find last word boundary
-        if let Some(last_space) = truncated.rfind(' ') {
-            format!("{}...", &truncated[..last_space])
-        } else {
-            format!("{}...", truncated)
+    truncate_to_tokens_for_model(text, max_tokens, "gpt-4")
+}
+
+/// Truncate text to fit within a token limit for a specific model.
+pub fn truncate_to_tokens_for_model(text: &str, max_tokens: usize, model: &str) -> String {
+    match tiktoken_rs::get_bpe_from_model(model)
+        .or_else(|_| tiktoken_rs::get_bpe_from_model("gpt-4"))
+    {
+        Ok(bpe) => {
+            let tokens = bpe.encode_with_special_tokens(text);
+            if tokens.len() <= max_tokens {
+                return text.to_string();
+            }
+            let truncated = &tokens[..max_tokens.saturating_sub(1)];
+            bpe.decode(truncated.to_vec())
+                .unwrap_or_else(|_| text.chars().take(max_tokens * 4).collect())
+        }
+        Err(_) => {
+            let max_chars = max_tokens * 4;
+            if text.len() <= max_chars {
+                text.to_string()
+            } else {
+                format!("{}...", &text[..max_chars.saturating_sub(3)])
+            }
         }
     }
 }
@@ -476,10 +498,7 @@ mod tests {
 
     #[test]
     fn test_multiple_variables() {
-        let tpl = PromptTemplate::new(
-            "test",
-            "{{ greeting }}, {{ name }}! You are a {{ role }}.",
-        );
+        let tpl = PromptTemplate::new("test", "{{ greeting }}, {{ name }}! You are a {{ role }}.");
         let mut vars = HashMap::new();
         vars.insert("greeting".to_string(), "Hi".to_string());
         vars.insert("name".to_string(), "Alice".to_string());
@@ -502,10 +521,7 @@ mod tests {
 
     #[test]
     fn test_conditional_true() {
-        let tpl = PromptTemplate::new(
-            "test",
-            "Hello{% if role %}, {{ role }}{% endif %}!",
-        );
+        let tpl = PromptTemplate::new("test", "Hello{% if role %}, {{ role }}{% endif %}!");
         let mut vars = HashMap::new();
         vars.insert("role".to_string(), "admin".to_string());
         let result = tpl.render(&vars).unwrap();
@@ -514,10 +530,7 @@ mod tests {
 
     #[test]
     fn test_conditional_false() {
-        let tpl = PromptTemplate::new(
-            "test",
-            "Hello{% if role %}, {{ role }}{% endif %}!",
-        );
+        let tpl = PromptTemplate::new("test", "Hello{% if role %}, {{ role }}{% endif %}!");
         let vars = HashMap::new();
         let result = tpl.render(&vars).unwrap();
         assert!(!result.contains("role"));
@@ -563,14 +576,8 @@ mod tests {
     #[test]
     fn test_prompt_registry() {
         let registry = PromptRegistry::new();
-        registry.register(
-            PromptTemplate::new("greet", "Hello {{ name }}!")
-                .with_version("1.0.0"),
-        );
-        registry.register(
-            PromptTemplate::new("greet", "Hi {{ name }}!")
-                .with_version("2.0.0"),
-        );
+        registry.register(PromptTemplate::new("greet", "Hello {{ name }}!").with_version("1.0.0"));
+        registry.register(PromptTemplate::new("greet", "Hi {{ name }}!").with_version("2.0.0"));
 
         let latest = registry.get_latest("greet").unwrap();
         assert_eq!(latest.version, "2.0.0");
@@ -580,16 +587,32 @@ mod tests {
     }
 
     #[test]
+    fn test_count_tokens_nonempty() {
+        assert!(count_tokens("Hello world", "gpt-4") > 0);
+    }
+
+    #[test]
+    fn test_count_tokens_empty() {
+        assert_eq!(count_tokens("", "gpt-4"), 0);
+    }
+
+    #[test]
     fn test_estimate_tokens() {
         assert_eq!(estimate_tokens(""), 0);
         assert!(estimate_tokens("Hello, world!") > 0);
     }
 
     #[test]
-    fn test_truncate_to_tokens() {
-        let text = "Hello world this is a long text";
-        let truncated = truncate_to_tokens(text, 3); // ~12 chars
-        assert!(truncated.len() < text.len() + 4);
+    fn test_truncate_preserves_short_text() {
+        let text = "one two three four five";
+        assert_eq!(truncate_to_tokens(text, 100), text);
+    }
+
+    #[test]
+    fn test_truncate_reduces_long_text() {
+        let text = "x".repeat(1000);
+        let truncated = truncate_to_tokens(&text, 10);
+        assert!(truncated.len() < text.len());
     }
 
     #[test]

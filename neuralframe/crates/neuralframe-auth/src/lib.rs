@@ -57,6 +57,17 @@ pub struct Identity {
     pub claims: serde_json::Value,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct Claims {
+    sub: String,
+    name: Option<String>,
+    email: Option<String>,
+    roles: Vec<String>,
+    iss: Option<String>,
+    exp: usize,
+    iat: usize,
+}
+
 impl Identity {
     /// Check if the identity has a specific role.
     pub fn has_role(&self, role: &str) -> bool {
@@ -125,19 +136,36 @@ impl Default for ApiKeyAuth {
 #[async_trait]
 impl AuthProvider for ApiKeyAuth {
     async fn authenticate(&self, token: &str) -> Result<Identity, AuthError> {
-        let config = self
-            .keys
-            .get(token)
-            .ok_or(AuthError::InvalidApiKey)?;
-
-        Ok(Identity {
-            id: config.key.clone(),
-            name: Some(config.name.clone()),
-            email: None,
-            roles: config.roles.clone(),
-            api_key: Some(config.key.clone()),
-            claims: serde_json::json!({}),
-        })
+        let key_prefix = if token.len() >= 4 { &token[..4] } else { token };
+        match self.keys.get(token) {
+            Some(config) => {
+                let identity = Identity {
+                    id: config.key.clone(),
+                    name: Some(config.name.clone()),
+                    email: None,
+                    roles: config.roles.clone(),
+                    api_key: Some(config.key.clone()),
+                    claims: serde_json::json!({}),
+                };
+                tracing::info!(
+                    provider = "api_key",
+                    key_prefix = key_prefix,
+                    identity_id = %identity.id,
+                    success = true,
+                    "authentication successful"
+                );
+                Ok(identity)
+            }
+            None => {
+                tracing::warn!(
+                    provider = "api_key",
+                    key_prefix = key_prefix,
+                    success = false,
+                    "authentication failed: invalid API key"
+                );
+                Err(AuthError::InvalidApiKey)
+            }
+        }
     }
 
     fn name(&self) -> &str {
@@ -166,28 +194,81 @@ impl JwtAuth {
         self.issuer = Some(issuer.to_string());
         self
     }
+
+    /// Sign an identity into a JWT with the given TTL in seconds.
+    pub fn sign(&self, identity: &Identity, ttl_secs: u64) -> Result<String, AuthError> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| AuthError::ConfigError(e.to_string()))?
+            .as_secs() as usize;
+        let claims = Claims {
+            sub: identity.id.clone(),
+            name: identity.name.clone(),
+            email: identity.email.clone(),
+            roles: identity.roles.clone(),
+            iss: self.issuer.clone(),
+            exp: if ttl_secs == 0 {
+                now.saturating_sub(1)
+            } else {
+                now + ttl_secs as usize
+            },
+            iat: now,
+        };
+        let key = jsonwebtoken::EncodingKey::from_secret(self.secret.as_bytes());
+        jsonwebtoken::encode(&jsonwebtoken::Header::default(), &claims, &key)
+            .map_err(|e| AuthError::ConfigError(e.to_string()))
+    }
 }
 
 #[async_trait]
 impl AuthProvider for JwtAuth {
     async fn authenticate(&self, token: &str) -> Result<Identity, AuthError> {
-        // In a full implementation, this would decode and verify the JWT
-        // using the secret key,validate claims, exp, iss, etc.
         if token.is_empty() {
             return Err(AuthError::InvalidToken("empty token".into()));
         }
-
-        // Stub: parse the token as base64-encoded JSON identity
-        tracing::debug!("JWT auth stub - verifying token");
-
-        Ok(Identity {
-            id: "jwt-user".to_string(),
-            name: None,
-            email: None,
-            roles: vec!["user".to_string()],
-            api_key: None,
-            claims: serde_json::json!({}),
-        })
+        let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
+        validation.leeway = 0;
+        if let Some(ref iss) = self.issuer {
+            validation.set_issuer(&[iss]);
+        }
+        let key = jsonwebtoken::DecodingKey::from_secret(self.secret.as_bytes());
+        match jsonwebtoken::decode::<Claims>(token, &key, &validation) {
+            Ok(data) => {
+                let identity = Identity {
+                    id: data.claims.sub,
+                    name: data.claims.name,
+                    email: data.claims.email,
+                    roles: data.claims.roles,
+                    api_key: None,
+                    claims: serde_json::json!({}),
+                };
+                tracing::info!(
+                    provider = "jwt",
+                    identity_id = %identity.id,
+                    success = true,
+                    "authentication successful"
+                );
+                Ok(identity)
+            }
+            Err(e) => {
+                let error = match e.kind() {
+                    jsonwebtoken::errors::ErrorKind::ExpiredSignature => {
+                        AuthError::InvalidToken("token expired".into())
+                    }
+                    jsonwebtoken::errors::ErrorKind::InvalidSignature => {
+                        AuthError::InvalidToken("invalid signature".into())
+                    }
+                    _ => AuthError::InvalidToken(e.to_string()),
+                };
+                tracing::warn!(
+                    provider = "jwt",
+                    error = %error,
+                    success = false,
+                    "authentication failed"
+                );
+                Err(error)
+            }
+        }
     }
 
     fn name(&self) -> &str {
@@ -300,6 +381,77 @@ mod tests {
     async fn test_api_key_invalid() {
         let auth = ApiKeyAuth::new();
         let result = auth.authenticate("invalid").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_jwt_sign_and_verify() {
+        let auth = JwtAuth::new("my-secret");
+        let id = Identity {
+            id: "user-1".into(),
+            name: Some("Alice".into()),
+            email: None,
+            roles: vec!["admin".into()],
+            api_key: None,
+            claims: serde_json::json!({}),
+        };
+        let token = auth.sign(&id, 3600);
+        assert!(token.is_ok());
+        let result = auth.authenticate(&token.expect("token")).await;
+        assert!(result.is_ok());
+        let result = result.expect("identity");
+        assert_eq!(result.id, "user-1");
+        assert!(result.has_role("admin"));
+    }
+
+    #[tokio::test]
+    async fn test_jwt_expired_rejected() {
+        let auth = JwtAuth::new("my-secret");
+        let id = Identity {
+            id: "u1".into(),
+            name: None,
+            email: None,
+            roles: vec![],
+            api_key: None,
+            claims: serde_json::json!({}),
+        };
+        let token = auth.sign(&id, 0).expect("token");
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let result = auth.authenticate(&token).await;
+        assert!(matches!(result, Err(AuthError::InvalidToken(_))));
+    }
+
+    #[tokio::test]
+    async fn test_jwt_wrong_secret_rejected() {
+        let signer = JwtAuth::new("secret-a");
+        let verifier = JwtAuth::new("secret-b");
+        let id = Identity {
+            id: "u1".into(),
+            name: None,
+            email: None,
+            roles: vec![],
+            api_key: None,
+            claims: serde_json::json!({}),
+        };
+        let token = signer.sign(&id, 3600).expect("token");
+        let result = verifier.authenticate(&token).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_jwt_tampered_rejected() {
+        let auth = JwtAuth::new("secret");
+        let id = Identity {
+            id: "u1".into(),
+            name: None,
+            email: None,
+            roles: vec![],
+            api_key: None,
+            claims: serde_json::json!({}),
+        };
+        let token = auth.sign(&id, 3600).expect("token");
+        let tampered = format!("{}X", &token[..token.len().saturating_sub(1)]);
+        let result = auth.authenticate(&tampered).await;
         assert!(result.is_err());
     }
 

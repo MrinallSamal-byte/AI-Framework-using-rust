@@ -17,9 +17,7 @@ use neuralframe_core::prelude::*;
 #[tokio::main]
 async fn main() {
     // Initialize tracing
-    tracing_subscriber::fmt()
-        .with_env_filter("info")
-        .init();
+    tracing_subscriber::fmt().with_env_filter("info").init();
 
     tracing::info!("Starting NeuralFrame Chatbot Server");
 

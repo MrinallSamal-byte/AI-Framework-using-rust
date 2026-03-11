@@ -42,7 +42,7 @@ impl ContextBuilder {
 
         // Add system context first (highest priority)
         if let Some(sys) = &self.system_context {
-            let tokens = estimate_tokens(sys);
+            let tokens = count_tokens(sys, "gpt-4");
             if tokens <= token_budget {
                 parts.push(sys.clone());
                 token_budget -= tokens;
@@ -60,7 +60,7 @@ impl ContextBuilder {
         // Add entries until budget is exhausted
         for entry in &sorted {
             let formatted = format!("{}: {}", entry.role, entry.content);
-            let tokens = estimate_tokens(&formatted);
+            let tokens = count_tokens(&formatted, "gpt-4");
             if tokens <= token_budget {
                 parts.push(formatted);
                 token_budget -= tokens;
@@ -75,16 +75,21 @@ impl ContextBuilder {
         let used: usize = self
             .entries
             .iter()
-            .map(|e| estimate_tokens(&e.content))
+            .map(|e| count_tokens(&e.content, "gpt-4"))
             .sum::<usize>()
-            + self.system_context.as_deref().map_or(0, estimate_tokens);
+            + self
+                .system_context
+                .as_deref()
+                .map_or(0, |text| count_tokens(text, "gpt-4"));
         self.max_tokens.saturating_sub(used)
     }
 }
 
-/// Rough token estimation (~4 chars per token).
-fn estimate_tokens(text: &str) -> usize {
-    (text.len() as f64 / 4.0).ceil() as usize
+fn count_tokens(text: &str, model: &str) -> usize {
+    tiktoken_rs::get_bpe_from_model(model)
+        .or_else(|_| tiktoken_rs::get_bpe_from_model("gpt-4"))
+        .map(|bpe| bpe.encode_with_special_tokens(text).len())
+        .unwrap_or_else(|_| (text.len() as f64 / 4.0).ceil() as usize)
 }
 
 #[cfg(test)]
@@ -154,13 +159,13 @@ mod tests {
             .unwrap();
 
         // Entry is too large, should not be included
-        assert!(ctx.is_empty() || estimate_tokens(&ctx) <= 10);
+        assert!(ctx.is_empty() || count_tokens(&ctx, "gpt-4") <= 10);
     }
 
     #[test]
-    fn test_estimate_tokens() {
-        assert_eq!(estimate_tokens(""), 0);
-        assert_eq!(estimate_tokens("test"), 1);
-        assert!(estimate_tokens("Hello, world!") > 0);
+    fn test_count_tokens() {
+        assert_eq!(count_tokens("", "gpt-4"), 0);
+        assert!(count_tokens("test", "gpt-4") > 0);
+        assert!(count_tokens("Hello, world!", "gpt-4") > 0);
     }
 }

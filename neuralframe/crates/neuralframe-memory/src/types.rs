@@ -144,12 +144,11 @@ impl EntityMemory {
         entity_type: &str,
         description: &str,
     ) -> Result<(), MemoryError> {
-        let entry = MemoryEntry::new(session, "entity", description).with_metadata(
-            serde_json::json!({
+        let entry =
+            MemoryEntry::new(session, "entity", description).with_metadata(serde_json::json!({
                 "entity_name": entity_name,
                 "entity_type": entity_type,
-            }),
-        );
+            }));
         self.store.store(session, entry).await
     }
 
@@ -302,11 +301,13 @@ mod tests {
             .await
             .unwrap();
 
-        let mock_provider = MockProvider::new(
-            "The user greeted the assistant and asked about Rust programming.",
-        );
+        let mock_provider =
+            MockProvider::new("The user greeted the assistant and asked about Rust programming.");
 
-        let summary = mem.summarize("s1", &mock_provider, "mock-model").await.unwrap();
+        let summary = mem
+            .summarize("s1", &mock_provider, "mock-model")
+            .await
+            .unwrap();
         assert_eq!(
             summary,
             "The user greeted the assistant and asked about Rust programming."

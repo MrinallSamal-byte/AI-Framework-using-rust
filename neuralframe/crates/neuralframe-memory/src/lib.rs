@@ -148,8 +148,7 @@ mod tests {
 
     #[test]
     fn test_memory_entry_with_embedding() {
-        let entry = MemoryEntry::new("s1", "user", "Hi")
-            .with_embedding(vec![1.0, 0.0, 0.0]);
+        let entry = MemoryEntry::new("s1", "user", "Hi").with_embedding(vec![1.0, 0.0, 0.0]);
         assert_eq!(entry.embedding.unwrap().len(), 3);
     }
 }

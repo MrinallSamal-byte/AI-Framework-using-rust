@@ -60,8 +60,8 @@ impl RetryConfig {
 
     /// Calculate the delay for a given attempt (0-based).
     pub fn delay_for_attempt(&self, attempt: u32) -> Duration {
-        let base = self.initial_delay.as_millis() as f64
-            * self.backoff_multiplier.powi(attempt as i32);
+        let base =
+            self.initial_delay.as_millis() as f64 * self.backoff_multiplier.powi(attempt as i32);
         let capped = base.min(self.max_delay.as_millis() as f64);
 
         if self.jitter {
@@ -163,7 +163,10 @@ impl ResilientClient {
 
     /// Generate embeddings with retry and failover logic.
     pub async fn embed(&self, text: &str, model: &str) -> Result<Vec<f32>, LLMError> {
-        match self.try_embed_with_retries(&*self.primary, text, model).await {
+        match self
+            .try_embed_with_retries(&*self.primary, text, model)
+            .await
+        {
             Ok(v) => Ok(v),
             Err(primary_err) => {
                 if self.fallbacks.is_empty() {
@@ -238,9 +241,7 @@ impl ResilientClient {
             }
         }
 
-        Err(last_error.unwrap_or(LLMError::ProviderUnavailable(
-            provider.name().to_string(),
-        )))
+        Err(last_error.unwrap_or(LLMError::ProviderUnavailable(provider.name().to_string())))
     }
 
     async fn try_embed_with_retries(
@@ -264,9 +265,7 @@ impl ResilientClient {
                 }
             }
         }
-        Err(last_error.unwrap_or(LLMError::ProviderUnavailable(
-            provider.name().to_string(),
-        )))
+        Err(last_error.unwrap_or(LLMError::ProviderUnavailable(provider.name().to_string())))
     }
 
     /// Check if an error is retryable.

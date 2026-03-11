@@ -43,11 +43,7 @@ impl Orchestrator {
     }
 
     /// Run a single agent by name.
-    pub async fn run_agent(
-        &self,
-        name: &str,
-        task: &str,
-    ) -> Result<AgentResult, AgentError> {
+    pub async fn run_agent(&self, name: &str, task: &str) -> Result<AgentResult, AgentError> {
         let agent = self
             .agents
             .get(name)
@@ -147,11 +143,7 @@ impl Orchestrator {
     }
 
     /// Run agents in parallel and split successes from failures.
-    pub async fn run_parallel_aggregate(
-        &self,
-        agent_names: &[&str],
-        task: &str,
-    ) -> ParallelResult {
+    pub async fn run_parallel_aggregate(&self, agent_names: &[&str], task: &str) -> ParallelResult {
         let raw = self.run_parallel_tolerant(agent_names, task).await;
         let mut successful = Vec::new();
         let mut failed = Vec::new();
@@ -191,12 +183,8 @@ mod tests {
     async fn test_orchestrator() {
         let mut orch = Orchestrator::new();
 
-        let agent1 = ReActAgent::new(
-            AgentConfig::new("research", "You research topics"),
-        );
-        let agent2 = ReActAgent::new(
-            AgentConfig::new("writer", "You write responses"),
-        );
+        let agent1 = ReActAgent::new(AgentConfig::new("research", "You research topics"));
+        let agent2 = ReActAgent::new(AgentConfig::new("writer", "You write responses"));
 
         orch.add_agent(agent1);
         orch.add_agent(agent2);
@@ -210,12 +198,8 @@ mod tests {
     #[tokio::test]
     async fn test_sequential() {
         let mut orch = Orchestrator::new();
-        orch.add_agent(ReActAgent::new(
-            AgentConfig::new("a1", "Agent 1"),
-        ));
-        orch.add_agent(ReActAgent::new(
-            AgentConfig::new("a2", "Agent 2"),
-        ));
+        orch.add_agent(ReActAgent::new(AgentConfig::new("a1", "Agent 1")));
+        orch.add_agent(ReActAgent::new(AgentConfig::new("a2", "Agent 2")));
 
         let result = orch
             .run_sequential(&["a1", "a2"], "Initial task")
@@ -227,12 +211,8 @@ mod tests {
     #[tokio::test]
     async fn test_parallel() {
         let mut orch = Orchestrator::new();
-        orch.add_agent(ReActAgent::new(
-            AgentConfig::new("a1", "Agent 1"),
-        ));
-        orch.add_agent(ReActAgent::new(
-            AgentConfig::new("a2", "Agent 2"),
-        ));
+        orch.add_agent(ReActAgent::new(AgentConfig::new("a1", "Agent 1")));
+        orch.add_agent(ReActAgent::new(AgentConfig::new("a2", "Agent 2")));
 
         let results = orch
             .run_parallel(&["a1", "a2"], "Shared task")
@@ -245,7 +225,9 @@ mod tests {
     async fn test_parallel_tolerant_partial_failure() {
         let mut orch = Orchestrator::new();
         orch.add_agent(ReActAgent::new(crate::AgentConfig::new("a1", "Agent 1")));
-        let results = orch.run_parallel_tolerant(&["a1", "nonexistent"], "task").await;
+        let results = orch
+            .run_parallel_tolerant(&["a1", "nonexistent"], "task")
+            .await;
         assert_eq!(results.len(), 2);
         assert!(results[0].is_ok());
         assert!(results[1].is_err());
@@ -254,8 +236,13 @@ mod tests {
     #[tokio::test]
     async fn test_parallel_aggregate_separates() {
         let mut orch = Orchestrator::new();
-        orch.add_agent(ReActAgent::new(crate::AgentConfig::new("good", "Good agent")));
-        let result = orch.run_parallel_aggregate(&["good", "missing"], "task").await;
+        orch.add_agent(ReActAgent::new(crate::AgentConfig::new(
+            "good",
+            "Good agent",
+        )));
+        let result = orch
+            .run_parallel_aggregate(&["good", "missing"], "task")
+            .await;
         assert_eq!(result.successful.len(), 1);
         assert_eq!(result.failed.len(), 1);
         assert_eq!(result.failed[0].0, "missing");

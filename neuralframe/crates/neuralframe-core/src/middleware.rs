@@ -555,7 +555,10 @@ mod tests {
     async fn test_cors_non_preflight_continues() {
         let mut chain = MiddlewareChain::new();
         chain.add(CorsMiddleware::permissive());
-        assert!(chain.process(Request::new("GET", "/api/data")).await.is_ok());
+        assert!(chain
+            .process(Request::new("GET", "/api/data"))
+            .await
+            .is_ok());
     }
 
     #[tokio::test]
@@ -623,7 +626,13 @@ mod tests {
         req.headers.insert("accept-encoding", "gzip, deflate");
         let response = Response::ok().text(&"x".repeat(2048));
         let compressed = chain.post_process_response(&req, response);
-        assert_eq!(compressed.headers.get("Content-Encoding").map(String::as_str), Some("gzip"));
+        assert_eq!(
+            compressed
+                .headers
+                .get("Content-Encoding")
+                .map(String::as_str),
+            Some("gzip")
+        );
         assert!(compressed.body_bytes().len() < 2048);
     }
 
@@ -652,7 +661,11 @@ mod tests {
         let mut chain = MiddlewareChain::new();
         chain.add(RequestIdMiddleware::new());
         let result = chain.process(Request::new("GET", "/test")).await;
-        assert!(result.expect("request").headers.get("x-request-id").is_some());
+        assert!(result
+            .expect("request")
+            .headers
+            .get("x-request-id")
+            .is_some());
     }
 
     #[tokio::test]
@@ -691,6 +704,10 @@ mod tests {
         let mut chain = MiddlewareChain::new();
         chain.add(TimeoutMiddleware::seconds(30));
         let result = chain.process(Request::new("GET", "/test")).await;
-        assert!(result.expect("request").headers.get("x-timeout-ms").is_some());
+        assert!(result
+            .expect("request")
+            .headers
+            .get("x-timeout-ms")
+            .is_some());
     }
 }

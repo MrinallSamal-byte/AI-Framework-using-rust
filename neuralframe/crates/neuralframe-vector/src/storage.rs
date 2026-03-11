@@ -65,8 +65,8 @@ impl PersistentStorage {
 
     /// Append an entry to the write-ahead log.
     pub fn append_wal(&mut self, entry: WalEntry) -> Result<(), VectorError> {
-        let line = serde_json::to_string(&entry)
-            .map_err(|e| VectorError::StorageError(e.to_string()))?;
+        let line =
+            serde_json::to_string(&entry).map_err(|e| VectorError::StorageError(e.to_string()))?;
         let path = self.config.data_dir.join("wal.jsonl");
         let mut file = std::fs::OpenOptions::new()
             .create(true)
@@ -128,8 +128,7 @@ impl PersistentStorage {
             writeln!(file, "{}", line).map_err(|e| VectorError::StorageError(e.to_string()))?;
         }
         let wal_path = self.config.data_dir.join("wal.jsonl");
-        std::fs::File::create(&wal_path)
-            .map_err(|e| VectorError::StorageError(e.to_string()))?;
+        std::fs::File::create(&wal_path).map_err(|e| VectorError::StorageError(e.to_string()))?;
         self.wal.clear();
         Ok(())
     }
@@ -230,8 +229,7 @@ mod tests {
             })
             .is_ok());
 
-        let loaded = VectorStore::load_from_disk(&config, 2, DistanceMetric::Cosine)
-            .expect("load");
+        let loaded = VectorStore::load_from_disk(&config, 2, DistanceMetric::Cosine).expect("load");
         assert_eq!(loaded.len(), 2);
         assert!(loaded.get("a").is_some());
         assert!(loaded.get("b").is_some());

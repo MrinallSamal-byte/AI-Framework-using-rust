@@ -1,5 +1,8 @@
 use async_trait::async_trait;
-use neuralframe_llm::{error::LLMError, tools::{Tool, ToolDefinition}};
+use neuralframe_llm::{
+    error::LLMError,
+    tools::{Tool, ToolDefinition},
+};
 
 /// Echo tool that returns the provided input string unchanged.
 pub struct EchoTool;

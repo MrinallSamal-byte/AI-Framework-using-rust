@@ -78,9 +78,10 @@ impl Plan {
             .enumerate()
             .filter(|(_, step)| {
                 !step.completed
-                    && step.depends_on.iter().all(|dep| {
-                        self.steps.get(*dep).map_or(false, |s| s.completed)
-                    })
+                    && step
+                        .depends_on
+                        .iter()
+                        .all(|dep| self.steps.get(*dep).is_some_and(|s| s.completed))
             })
             .map(|(i, _)| i)
             .collect()

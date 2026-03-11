@@ -153,20 +153,19 @@ impl LLMProvider for GoogleProvider {
             });
         }
 
-        let resp: GeminiResponse =
-            response.json().await.map_err(|e| LLMError::ParseError {
-                context: "Gemini response".into(),
-                source: e.to_string(),
-            })?;
+        let resp: GeminiResponse = response.json().await.map_err(|e| LLMError::ParseError {
+            context: "Gemini response".into(),
+            source: e.to_string(),
+        })?;
 
-        let candidate = resp
-            .candidates
-            .as_ref()
-            .and_then(|c| c.first())
-            .ok_or(LLMError::ParseError {
-                context: "Gemini response".into(),
-                source: "no candidates returned".into(),
-            })?;
+        let candidate =
+            resp.candidates
+                .as_ref()
+                .and_then(|c| c.first())
+                .ok_or(LLMError::ParseError {
+                    context: "Gemini response".into(),
+                    source: "no candidates returned".into(),
+                })?;
 
         let content = candidate
             .content
@@ -337,11 +336,10 @@ impl LLMProvider for GoogleProvider {
             values: Vec<f32>,
         }
 
-        let resp: EmbedResponse =
-            response.json().await.map_err(|e| LLMError::ParseError {
-                context: "Gemini embedding".into(),
-                source: e.to_string(),
-            })?;
+        let resp: EmbedResponse = response.json().await.map_err(|e| LLMError::ParseError {
+            context: "Gemini embedding".into(),
+            source: e.to_string(),
+        })?;
 
         Ok(resp.embedding.values)
     }

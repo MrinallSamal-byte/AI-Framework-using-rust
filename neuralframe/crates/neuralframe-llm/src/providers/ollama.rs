@@ -121,16 +121,12 @@ impl LLMProvider for OllamaProvider {
             });
         }
 
-        let resp: OllamaResponse =
-            response.json().await.map_err(|e| LLMError::ParseError {
-                context: "Ollama response".into(),
-                source: e.to_string(),
-            })?;
+        let resp: OllamaResponse = response.json().await.map_err(|e| LLMError::ParseError {
+            context: "Ollama response".into(),
+            source: e.to_string(),
+        })?;
 
-        let content = resp
-            .message
-            .map(|m| m.content)
-            .unwrap_or_default();
+        let content = resp.message.map(|m| m.content).unwrap_or_default();
 
         let prompt_tokens = resp.prompt_eval_count.unwrap_or(0);
         let completion_tokens = resp.eval_count.unwrap_or(0);
@@ -252,11 +248,10 @@ impl LLMProvider for OllamaProvider {
             embedding: Vec<f32>,
         }
 
-        let resp: EmbedResp =
-            response.json().await.map_err(|e| LLMError::ParseError {
-                context: "Ollama embedding".into(),
-                source: e.to_string(),
-            })?;
+        let resp: EmbedResp = response.json().await.map_err(|e| LLMError::ParseError {
+            context: "Ollama embedding".into(),
+            source: e.to_string(),
+        })?;
 
         Ok(resp.embedding)
     }

@@ -17,8 +17,7 @@ pub struct RedisStore {
 impl RedisStore {
     /// Create a new Redis store.
     pub fn new(connection_url: &str) -> Self {
-        let client = redis::Client::open(connection_url)
-            .expect("Invalid Redis connection URL");
+        let client = redis::Client::open(connection_url).expect("Invalid Redis connection URL");
         Self {
             client,
             prefix: "nf:memory:".to_string(),
@@ -174,7 +173,10 @@ mod tests {
         store.clear("test_s1").await.unwrap();
 
         store
-            .store("test_s1", MemoryEntry::new("test_s1", "user", "Hello world"))
+            .store(
+                "test_s1",
+                MemoryEntry::new("test_s1", "user", "Hello world"),
+            )
             .await
             .unwrap();
         store

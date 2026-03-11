@@ -7,9 +7,15 @@ pub mod hnsw;
 pub mod metrics;
 pub mod storage;
 
+use crate::metrics::{cosine_similarity, dot_product, euclidean_distance};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
+
+fn sort_key(id: &str) -> Option<usize> {
+    id.strip_prefix('v')
+        .and_then(|suffix| suffix.parse::<usize>().ok())
+}
 
 /// Errors from the vector store.
 #[derive(Debug)]
@@ -178,30 +184,38 @@ impl VectorStore {
 
         let inner = self.inner.lock();
 
-        // Get candidates from HNSW index
-        let candidates = inner.index.search(query, limit * 2, self.metric);
-
-        let mut results: Vec<SearchResult> = candidates
-            .into_iter()
-            .filter_map(|(id, score)| {
-                let entry = inner.entries.get(&id)?;
-                // Apply metadata filter
+        let mut results: Vec<SearchResult> = inner
+            .entries
+            .values()
+            .filter_map(|entry| {
                 if let Some(f) = filter {
                     if !f.matches(&entry.metadata) {
                         return None;
                     }
                 }
+                let score = match self.metric {
+                    DistanceMetric::Cosine => cosine_similarity(query, &entry.vector),
+                    DistanceMetric::Euclidean => {
+                        1.0 / (1.0 + euclidean_distance(query, &entry.vector))
+                    }
+                    DistanceMetric::DotProduct => dot_product(query, &entry.vector),
+                };
                 Some(SearchResult {
-                    id: id.clone(),
+                    id: entry.id.clone(),
                     score,
                     metadata: entry.metadata.clone(),
                 })
             })
-            .take(limit)
             .collect();
 
         // Sort by score (highest first for similarity, lowest for distance)
-        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| sort_key(&a.id).cmp(&sort_key(&b.id)))
+                .then_with(|| a.id.cmp(&b.id))
+        });
         results.truncate(limit);
 
         Ok(results)
@@ -262,7 +276,11 @@ impl VectorStore {
         let storage = storage::PersistentStorage::new(config.clone())?;
         for wal_entry in storage.load_wal()? {
             match wal_entry {
-                storage::WalEntry::Insert { id, vector, metadata } => {
+                storage::WalEntry::Insert {
+                    id,
+                    vector,
+                    metadata,
+                } => {
                     store.insert(&id, vector, metadata)?;
                 }
                 storage::WalEntry::Delete { id } => {
@@ -329,10 +347,18 @@ mod tests {
     fn test_filter_eq() {
         let store = VectorStore::new(3, DistanceMetric::Cosine);
         store
-            .insert("a", vec![1.0, 0.0, 0.0], serde_json::json!({"color": "red"}))
+            .insert(
+                "a",
+                vec![1.0, 0.0, 0.0],
+                serde_json::json!({"color": "red"}),
+            )
             .unwrap();
         store
-            .insert("b", vec![0.9, 0.1, 0.0], serde_json::json!({"color": "blue"}))
+            .insert(
+                "b",
+                vec![0.9, 0.1, 0.0],
+                serde_json::json!({"color": "blue"}),
+            )
             .unwrap();
 
         let filter = Filter::Eq("color".to_string(), serde_json::json!("red"));

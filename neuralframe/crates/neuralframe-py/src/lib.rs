@@ -42,7 +42,9 @@ fn to_py_response(resp: neuralframe_llm::types::CompletionResponse) -> PyComplet
 /// NeuralFrame Python module.
 #[pymodule]
 fn neuralframe(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    pyo3_asyncio_0_21::tokio::init_multi_thread();
+    let mut builder = tokio::runtime::Builder::new_multi_thread();
+    builder.enable_all();
+    pyo3_asyncio_0_21::tokio::init(builder);
     m.add_class::<PyCompletionRequest>()?;
     m.add_class::<PyCompletionResponse>()?;
     m.add_class::<PyMessage>()?;

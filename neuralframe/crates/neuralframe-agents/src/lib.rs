@@ -231,8 +231,8 @@ impl ReActAgent {
 
         if let Some(tool) = action_tool {
             let raw = action_input_lines.join("\n");
-            let input = serde_json::from_str(&raw)
-                .unwrap_or_else(|_| serde_json::json!({"input": raw}));
+            let input =
+                serde_json::from_str(&raw).unwrap_or_else(|_| serde_json::json!({"input": raw}));
             return AgentAction::Act { tool, input };
         }
 
@@ -296,7 +296,10 @@ impl Agent for ReActAgent {
                         tokens_used: 0,
                     });
                 }
-                AgentAction::Act { ref tool, ref input } => {
+                AgentAction::Act {
+                    ref tool,
+                    ref input,
+                } => {
                     conversation.push(Message::assistant(&llm_response));
                     let observation = if let Some(ref registry) = self.tool_registry {
                         registry
@@ -332,7 +335,9 @@ pub mod prelude {
     pub use crate::builtin_tools::{CurrentTimeTool, EchoTool};
     pub use crate::orchestrator::*;
     pub use crate::planning::*;
-    pub use crate::{Agent, AgentAction, AgentConfig, AgentError, AgentResult, AgentStep, ReActAgent};
+    pub use crate::{
+        Agent, AgentAction, AgentConfig, AgentError, AgentResult, AgentStep, ReActAgent,
+    };
 }
 
 #[cfg(test)]
@@ -341,7 +346,9 @@ mod tests {
     use neuralframe_llm::error::LLMError;
     use neuralframe_llm::providers::LLMProvider;
     use neuralframe_llm::tools::ToolRegistry;
-    use neuralframe_llm::types::{CompletionRequest, CompletionResponse, FinishReason, Token, Usage};
+    use neuralframe_llm::types::{
+        CompletionRequest, CompletionResponse, FinishReason, Token, Usage,
+    };
     use std::pin::Pin;
     use std::sync::Mutex;
     use tokio_stream::Stream;
@@ -438,8 +445,7 @@ mod tests {
     #[tokio::test]
     async fn test_react_agent_with_mock_final_answer() {
         let provider = MockProvider::new(vec!["Final Answer: 42"]);
-        let agent = ReActAgent::new(AgentConfig::new("test", "Be helpful"))
-            .with_provider(provider);
+        let agent = ReActAgent::new(AgentConfig::new("test", "Be helpful")).with_provider(provider);
         let result = agent.run("What is the answer?").await;
         assert_eq!(result.expect("result").answer, "42");
     }
@@ -457,7 +463,10 @@ mod tests {
             .with_tools(registry);
         let result = agent.run("Echo hello").await.expect("result");
         assert_eq!(result.answer, "hello");
-        assert!(result.trace.iter().any(|s| matches!(s.action, AgentAction::Observe(_))));
+        assert!(result
+            .trace
+            .iter()
+            .any(|s| matches!(s.action, AgentAction::Observe(_))));
     }
 
     #[tokio::test]

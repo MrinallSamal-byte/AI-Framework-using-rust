@@ -1,6 +1,6 @@
 //! Benchmarks for the vector store and similarity metrics.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 
 fn bench_cosine_similarity(c: &mut Criterion) {
     let mut group = c.benchmark_group("cosine_similarity");
@@ -44,9 +44,7 @@ fn bench_dot_product(c: &mut Criterion) {
         let b: Vec<f32> = (0..*dim).map(|i| (i as f32 / *dim as f32).cos()).collect();
 
         group.bench_with_input(BenchmarkId::new("dim", dim), dim, |bench, _| {
-            bench.iter(|| {
-                neuralframe_vector::metrics::dot_product(black_box(&a), black_box(&b))
-            });
+            bench.iter(|| neuralframe_vector::metrics::dot_product(black_box(&a), black_box(&b)));
         });
     }
 
@@ -58,7 +56,10 @@ fn bench_vector_store_insert(c: &mut Criterion) {
     c.bench_function("vector_store_insert", |bench| {
         bench.iter_batched(
             || {
-                let store = neuralframe_vector::VectorStore::new(dim, neuralframe_vector::DistanceMetric::Cosine);
+                let store = neuralframe_vector::VectorStore::new(
+                    dim,
+                    neuralframe_vector::DistanceMetric::Cosine,
+                );
                 let vectors: Vec<Vec<f32>> = (0..100)
                     .map(|i| (0..dim).map(|j| ((i * dim + j) as f32).sin()).collect())
                     .collect();
@@ -66,7 +67,9 @@ fn bench_vector_store_insert(c: &mut Criterion) {
             },
             |(store, vectors)| {
                 for (i, vec) in vectors.into_iter().enumerate() {
-                    store.insert(&format!("v{}", i), vec, serde_json::json!({})).ok();
+                    store
+                        .insert(&format!("v{}", i), vec, serde_json::json!({}))
+                        .ok();
                 }
             },
             criterion::BatchSize::SmallInput,
@@ -76,20 +79,21 @@ fn bench_vector_store_insert(c: &mut Criterion) {
 
 fn bench_vector_store_search(c: &mut Criterion) {
     let dim = 384;
-    let store = neuralframe_vector::VectorStore::new(dim, neuralframe_vector::DistanceMetric::Cosine);
+    let store =
+        neuralframe_vector::VectorStore::new(dim, neuralframe_vector::DistanceMetric::Cosine);
 
     // Pre-populate
     for i in 0..500 {
         let vec: Vec<f32> = (0..dim).map(|j| ((i * dim + j) as f32).sin()).collect();
-        store.insert(&format!("v{}", i), vec, serde_json::json!({"idx": i})).ok();
+        store
+            .insert(&format!("v{}", i), vec, serde_json::json!({"idx": i}))
+            .ok();
     }
 
     let query: Vec<f32> = (0..dim).map(|j| (j as f32 / dim as f32).sin()).collect();
 
     c.bench_function("vector_store_search_top10_from_500", |bench| {
-        bench.iter(|| {
-            store.search(black_box(&query), black_box(10), None).ok()
-        });
+        bench.iter(|| store.search(black_box(&query), black_box(10), None).ok());
     });
 }
 
@@ -106,7 +110,11 @@ fn bench_hnsw_search(c: &mut Criterion) {
 
     c.bench_function("hnsw_search_top10_from_1000", |bench| {
         bench.iter(|| {
-            index.search(black_box(&query), black_box(10), neuralframe_vector::DistanceMetric::Cosine)
+            index.search(
+                black_box(&query),
+                black_box(10),
+                neuralframe_vector::DistanceMetric::Cosine,
+            )
         });
     });
 }

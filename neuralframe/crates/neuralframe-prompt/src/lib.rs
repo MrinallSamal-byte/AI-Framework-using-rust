@@ -145,9 +145,9 @@ impl PromptTemplate {
             if let Some(close) = result[open..].find("}}") {
                 let close = open + close;
                 let var_name = result[open + 2..close].trim();
-                let value = variables.get(var_name).ok_or_else(|| {
-                    PromptError::MissingVariable(var_name.to_string())
-                })?;
+                let value = variables
+                    .get(var_name)
+                    .ok_or_else(|| PromptError::MissingVariable(var_name.to_string()))?;
                 result = format!("{}{}{}", &result[..open], value, &result[close + 2..]);
                 start = open + value.len();
             } else {
@@ -169,9 +169,9 @@ impl PromptTemplate {
         let mut result = input.to_string();
 
         while let Some(if_start) = result.find("{% if ") {
-            let if_end = result[if_start..].find("%}").ok_or_else(|| {
-                PromptError::SyntaxError("unclosed {% if %} tag".to_string())
-            })?;
+            let if_end = result[if_start..]
+                .find("%}")
+                .ok_or_else(|| PromptError::SyntaxError("unclosed {% if %} tag".to_string()))?;
             let if_end = if_start + if_end + 2;
 
             let condition = result[if_start + 6..if_end - 2].trim();
@@ -183,9 +183,9 @@ impl PromptTemplate {
             };
 
             let endif_tag = "{% endif %}";
-            let endif_pos = result[if_end..].find(endif_tag).ok_or_else(|| {
-                PromptError::SyntaxError("missing {% endif %}".to_string())
-            })?;
+            let endif_pos = result[if_end..]
+                .find(endif_tag)
+                .ok_or_else(|| PromptError::SyntaxError("missing {% endif %}".to_string()))?;
             let endif_pos = if_end + endif_pos;
 
             let body = &result[if_end..endif_pos];
@@ -221,9 +221,9 @@ impl PromptTemplate {
         let mut result = input.to_string();
 
         while let Some(for_start) = result.find("{% for ") {
-            let for_end = result[for_start..].find("%}").ok_or_else(|| {
-                PromptError::SyntaxError("unclosed {% for %} tag".to_string())
-            })?;
+            let for_end = result[for_start..]
+                .find("%}")
+                .ok_or_else(|| PromptError::SyntaxError("unclosed {% for %} tag".to_string()))?;
             let for_end = for_start + for_end + 2;
 
             let for_expr = result[for_start + 7..for_end - 2].trim();
@@ -237,9 +237,9 @@ impl PromptTemplate {
             let list_var = parts[1].trim();
 
             let endfor_tag = "{% endfor %}";
-            let endfor_pos = result[for_end..].find(endfor_tag).ok_or_else(|| {
-                PromptError::SyntaxError("missing {% endfor %}".to_string())
-            })?;
+            let endfor_pos = result[for_end..]
+                .find(endfor_tag)
+                .ok_or_else(|| PromptError::SyntaxError("missing {% endfor %}".to_string()))?;
             let endfor_pos = for_end + endfor_pos;
 
             let body = &result[for_end..endfor_pos];
@@ -410,9 +410,9 @@ impl PromptRegistry {
 
     /// Get a specific version of a template.
     pub fn get_version(&self, name: &str, version: &str) -> Option<PromptTemplate> {
-        self.templates.get(name).and_then(|versions| {
-            versions.iter().find(|t| t.version == version).cloned()
-        })
+        self.templates
+            .get(name)
+            .and_then(|versions| versions.iter().find(|t| t.version == version).cloned())
     }
 
     /// Select a random template for A/B testing.
@@ -498,10 +498,7 @@ mod tests {
 
     #[test]
     fn test_multiple_variables() {
-        let tpl = PromptTemplate::new(
-            "test",
-            "{{ greeting }}, {{ name }}! You are a {{ role }}.",
-        );
+        let tpl = PromptTemplate::new("test", "{{ greeting }}, {{ name }}! You are a {{ role }}.");
         let mut vars = HashMap::new();
         vars.insert("greeting".to_string(), "Hi".to_string());
         vars.insert("name".to_string(), "Alice".to_string());
@@ -524,10 +521,7 @@ mod tests {
 
     #[test]
     fn test_conditional_true() {
-        let tpl = PromptTemplate::new(
-            "test",
-            "Hello{% if role %}, {{ role }}{% endif %}!",
-        );
+        let tpl = PromptTemplate::new("test", "Hello{% if role %}, {{ role }}{% endif %}!");
         let mut vars = HashMap::new();
         vars.insert("role".to_string(), "admin".to_string());
         let result = tpl.render(&vars).unwrap();
@@ -536,10 +530,7 @@ mod tests {
 
     #[test]
     fn test_conditional_false() {
-        let tpl = PromptTemplate::new(
-            "test",
-            "Hello{% if role %}, {{ role }}{% endif %}!",
-        );
+        let tpl = PromptTemplate::new("test", "Hello{% if role %}, {{ role }}{% endif %}!");
         let vars = HashMap::new();
         let result = tpl.render(&vars).unwrap();
         assert!(!result.contains("role"));
@@ -585,14 +576,8 @@ mod tests {
     #[test]
     fn test_prompt_registry() {
         let registry = PromptRegistry::new();
-        registry.register(
-            PromptTemplate::new("greet", "Hello {{ name }}!")
-                .with_version("1.0.0"),
-        );
-        registry.register(
-            PromptTemplate::new("greet", "Hi {{ name }}!")
-                .with_version("2.0.0"),
-        );
+        registry.register(PromptTemplate::new("greet", "Hello {{ name }}!").with_version("1.0.0"));
+        registry.register(PromptTemplate::new("greet", "Hi {{ name }}!").with_version("2.0.0"));
 
         let latest = registry.get_latest("greet").unwrap();
         assert_eq!(latest.version, "2.0.0");

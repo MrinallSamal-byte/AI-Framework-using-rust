@@ -69,22 +69,19 @@ impl<T> std::ops::DerefMut for Json<T> {
 impl<T: DeserializeOwned> Json<T> {
     /// Parse JSON from a byte slice.
     pub fn from_bytes(bytes: &[u8]) -> NeuralResult<Self> {
-        let value: T = serde_json::from_slice(bytes).map_err(|e| {
-            NeuralError::DeserializationError {
+        let value: T =
+            serde_json::from_slice(bytes).map_err(|e| NeuralError::DeserializationError {
                 context: "JSON body".to_string(),
                 source: e.to_string(),
-            }
-        })?;
+            })?;
         Ok(Json(value))
     }
 
     /// Parse JSON from a string.
-    pub fn from_str(s: &str) -> NeuralResult<Self> {
-        let value: T = serde_json::from_str(s).map_err(|e| {
-            NeuralError::DeserializationError {
-                context: "JSON body".to_string(),
-                source: e.to_string(),
-            }
+    pub fn parse_str(s: &str) -> NeuralResult<Self> {
+        let value: T = serde_json::from_str(s).map_err(|e| NeuralError::DeserializationError {
+            context: "JSON body".to_string(),
+            source: e.to_string(),
         })?;
         Ok(Json(value))
     }
@@ -157,12 +154,11 @@ impl<T: DeserializeOwned> Query<T> {
             .collect();
 
         let value = serde_json::Value::Object(map);
-        let result: T = serde_json::from_value(value).map_err(|e| {
-            NeuralError::DeserializationError {
+        let result: T =
+            serde_json::from_value(value).map_err(|e| NeuralError::DeserializationError {
                 context: "query parameters".to_string(),
                 source: e.to_string(),
-            }
-        })?;
+            })?;
 
         Ok(Query(result))
     }
@@ -210,12 +206,13 @@ impl PathParams {
 
     /// Get a parameter or return an error.
     pub fn require(&self, name: &str) -> NeuralResult<&str> {
-        self.params.get(name).map(|s| s.as_str()).ok_or_else(|| {
-            NeuralError::DeserializationError {
+        self.params
+            .get(name)
+            .map(|s| s.as_str())
+            .ok_or_else(|| NeuralError::DeserializationError {
                 context: format!("path parameter '{}'", name),
                 source: "parameter not found".to_string(),
-            }
-        })
+            })
     }
 
     /// Return the number of extracted parameters.
@@ -269,8 +266,7 @@ impl Headers {
 
     /// Insert a header (key is lowercased automatically).
     pub fn insert(&mut self, key: &str, value: &str) {
-        self.inner
-            .insert(key.to_lowercase(), value.to_string());
+        self.inner.insert(key.to_lowercase(), value.to_string());
     }
 
     /// Get a header value by name (case-insensitive).
@@ -301,7 +297,9 @@ impl Headers {
 
     /// Extract an API key from a custom header.
     pub fn api_key(&self, header_name: &str) -> Option<&str> {
-        self.inner.get(&header_name.to_lowercase()).map(|s| s.as_str())
+        self.inner
+            .get(&header_name.to_lowercase())
+            .map(|s| s.as_str())
     }
 
     /// Return the number of headers.
@@ -427,7 +425,7 @@ mod tests {
 
     #[test]
     fn test_json_from_str() {
-        let json = Json::<TestBody>::from_str(r#"{"name":"Bob","age":25}"#).unwrap();
+        let json = Json::<TestBody>::parse_str(r#"{"name":"Bob","age":25}"#).unwrap();
         assert_eq!(json.name, "Bob");
         assert_eq!(json.age, 25);
     }

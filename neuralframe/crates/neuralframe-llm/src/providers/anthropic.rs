@@ -37,10 +37,7 @@ impl AnthropicProvider {
 
     fn build_headers(&self) -> reqwest::header::HeaderMap {
         let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert(
-            "x-api-key",
-            self.api_key.parse().expect("valid header"),
-        );
+        headers.insert("x-api-key", self.api_key.parse().expect("valid header"));
         headers.insert(
             "anthropic-version",
             self.api_version.parse().expect("valid header"),
@@ -159,11 +156,10 @@ impl LLMProvider for AnthropicProvider {
             });
         }
 
-        let resp: AnthropicResponse =
-            response.json().await.map_err(|e| LLMError::ParseError {
-                context: "Anthropic response".into(),
-                source: e.to_string(),
-            })?;
+        let resp: AnthropicResponse = response.json().await.map_err(|e| LLMError::ParseError {
+            context: "Anthropic response".into(),
+            source: e.to_string(),
+        })?;
 
         let content = resp
             .content
@@ -254,9 +250,7 @@ impl LLMProvider for AnthropicProvider {
                     for line in text.lines() {
                         let line = line.trim();
                         if let Some(data) = line.strip_prefix("data: ") {
-                            if let Ok(event) =
-                                serde_json::from_str::<AnthropicStreamEvent>(data)
-                            {
+                            if let Ok(event) = serde_json::from_str::<AnthropicStreamEvent>(data) {
                                 match event.event_type.as_str() {
                                     "content_block_delta" => {
                                         if let Some(delta) = event.delta {
@@ -310,6 +304,8 @@ mod tests {
     fn test_provider_creation() {
         let provider = AnthropicProvider::new("test-key");
         assert_eq!(provider.name(), "anthropic");
-        assert!(provider.models().contains(&"claude-3-5-sonnet-20241022".to_string()));
+        assert!(provider
+            .models()
+            .contains(&"claude-3-5-sonnet-20241022".to_string()));
     }
 }

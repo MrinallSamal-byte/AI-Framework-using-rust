@@ -31,9 +31,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 /// Type alias for an async handler function.
-pub type HandlerFn = Arc<
-    dyn Fn(Request) -> Pin<Box<dyn Future<Output = Response> + Send>> + Send + Sync,
->;
+pub type HandlerFn =
+    Arc<dyn Fn(Request) -> Pin<Box<dyn Future<Output = Response> + Send>> + Send + Sync>;
 
 /// The NeuralFrame application builder.
 ///
@@ -221,10 +220,7 @@ impl NeuralFrame {
                     handler_fut.await
                 }
             }
-            None => Response::not_found(&format!(
-                "No route found for {} {}",
-                method, path
-            )),
+            None => Response::not_found(&format!("No route found for {} {}", method, path)),
         };
         self.middleware.post_process_response(&request, response)
     }
@@ -247,21 +243,22 @@ impl NeuralFrame {
         );
 
         let addr: std::net::SocketAddr =
-            self.bind_address.parse().map_err(|e: std::net::AddrParseError| {
-                NeuralError::BindError {
+            self.bind_address
+                .parse()
+                .map_err(|e: std::net::AddrParseError| NeuralError::BindError {
                     address: self.bind_address.clone(),
                     source: e.to_string(),
-                }
-            })?;
+                })?;
 
         let app = Arc::new(self);
 
-        let listener = tokio::net::TcpListener::bind(addr)
-            .await
-            .map_err(|e| NeuralError::BindError {
-                address: addr.to_string(),
-                source: e.to_string(),
-            })?;
+        let listener =
+            tokio::net::TcpListener::bind(addr)
+                .await
+                .map_err(|e| NeuralError::BindError {
+                    address: addr.to_string(),
+                    source: e.to_string(),
+                })?;
 
         tracing::info!(address = %addr, "server listening");
 
@@ -359,9 +356,7 @@ impl NeuralFrame {
             "draining in-flight requests"
         );
 
-        let drain_fut = async move {
-            while join_set.join_next().await.is_some() {}
-        };
+        let drain_fut = async move { while join_set.join_next().await.is_some() {} };
         match tokio::time::timeout(app.shutdown_timeout, drain_fut).await {
             Ok(_) => tracing::info!("graceful shutdown complete"),
             Err(_) => tracing::warn!("shutdown timeout elapsed, forcing exit"),
@@ -398,10 +393,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_neuralframe_route_matching() {
-        let app = NeuralFrame::new()
-            .get("/hello", |_req| async {
-                Response::ok().text("Hello!")
-            });
+        let app = NeuralFrame::new().get("/hello", |_req| async { Response::ok().text("Hello!") });
 
         let req = Request::new("GET", "/hello");
         let resp = app.handle_request(req).await;
@@ -411,10 +403,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_neuralframe_route_not_found() {
-        let app = NeuralFrame::new()
-            .get("/hello", |_req| async {
-                Response::ok().text("Hello!")
-            });
+        let app = NeuralFrame::new().get("/hello", |_req| async { Response::ok().text("Hello!") });
 
         let req = Request::new("GET", "/missing");
         let resp = app.handle_request(req).await;
@@ -423,14 +412,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_neuralframe_post_handler() {
-        let app = NeuralFrame::new()
-            .post("/echo", |req| async move {
-                let body = req.body_string().unwrap_or_default();
-                Response::ok().text(&body)
-            });
+        let app = NeuralFrame::new().post("/echo", |req| async move {
+            let body = req.body_string().unwrap_or_default();
+            Response::ok().text(&body)
+        });
 
-        let req = Request::new("POST", "/echo")
-            .with_body(b"Hello, NeuralFrame!".to_vec());
+        let req = Request::new("POST", "/echo").with_body(b"Hello, NeuralFrame!".to_vec());
         let resp = app.handle_request(req).await;
         assert_eq!(resp.status_code, 200);
         assert_eq!(resp.body_string().unwrap(), "Hello, NeuralFrame!");
@@ -438,11 +425,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_neuralframe_path_params() {
-        let app = NeuralFrame::new()
-            .get("/users/:id", |req| async move {
-                let id = req.params.get("id").cloned().unwrap_or_default();
-                Response::ok().json(serde_json::json!({"user_id": id}))
-            });
+        let app = NeuralFrame::new().get("/users/:id", |req| async move {
+            let id = req.params.get("id").cloned().unwrap_or_default();
+            Response::ok().json(serde_json::json!({"user_id": id}))
+        });
 
         let req = Request::new("GET", "/users/42");
         let resp = app.handle_request(req).await;
@@ -460,18 +446,14 @@ mod tests {
             text: String,
         }
 
-        let app = NeuralFrame::new()
-            .post("/chat", |req| async move {
-                match req.json::<Message>() {
-                    Ok(json) => {
-                        Response::ok().json(serde_json::json!({"echo": json.text}))
-                    }
-                    Err(_) => Response::bad_request("Invalid JSON"),
-                }
-            });
+        let app = NeuralFrame::new().post("/chat", |req| async move {
+            match req.json::<Message>() {
+                Ok(json) => Response::ok().json(serde_json::json!({"echo": json.text})),
+                Err(_) => Response::bad_request("Invalid JSON"),
+            }
+        });
 
-        let req = Request::new("POST", "/chat")
-            .with_body(br#"{"text":"Hello!"}"#.to_vec());
+        let req = Request::new("POST", "/chat").with_body(br#"{"text":"Hello!"}"#.to_vec());
         let resp = app.handle_request(req).await;
         assert_eq!(resp.status_code, 200);
         let body = resp.body_string().unwrap();
@@ -482,9 +464,7 @@ mod tests {
     async fn test_neuralframe_with_middleware() {
         let app = NeuralFrame::new()
             .middleware(LoggingMiddleware::new())
-            .get("/test", |_req| async {
-                Response::ok().text("OK")
-            });
+            .get("/test", |_req| async { Response::ok().text("OK") });
 
         let req = Request::new("GET", "/test");
         let resp = app.handle_request(req).await;
@@ -494,21 +474,13 @@ mod tests {
     #[tokio::test]
     async fn test_neuralframe_multiple_methods() {
         let app = NeuralFrame::new()
-            .get("/resource", |_req| async {
-                Response::ok().text("GET")
-            })
+            .get("/resource", |_req| async { Response::ok().text("GET") })
             .post("/resource", |_req| async {
                 Response::created().text("POST")
             })
-            .put("/resource", |_req| async {
-                Response::ok().text("PUT")
-            })
-            .delete("/resource", |_req| async {
-                Response::no_content()
-            })
-            .patch("/resource", |_req| async {
-                Response::ok().text("PATCH")
-            });
+            .put("/resource", |_req| async { Response::ok().text("PUT") })
+            .delete("/resource", |_req| async { Response::no_content() })
+            .patch("/resource", |_req| async { Response::ok().text("PATCH") });
 
         let resp = app.handle_request(Request::new("GET", "/resource")).await;
         assert_eq!(resp.body_string().unwrap(), "GET");
@@ -516,7 +488,9 @@ mod tests {
         let resp = app.handle_request(Request::new("POST", "/resource")).await;
         assert_eq!(resp.status_code, 201);
 
-        let resp = app.handle_request(Request::new("DELETE", "/resource")).await;
+        let resp = app
+            .handle_request(Request::new("DELETE", "/resource"))
+            .await;
         assert_eq!(resp.status_code, 204);
     }
 
@@ -534,13 +508,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_middleware_short_circuit() {
-        use crate::middleware::{CorsMiddleware};
+        use crate::middleware::CorsMiddleware;
 
         let app = NeuralFrame::new()
             .middleware(CorsMiddleware::permissive())
-            .get("/api/data", |_req| async {
-                Response::ok().text("data")
-            });
+            .get("/api/data", |_req| async { Response::ok().text("data") });
 
         // OPTIONS preflight should be short-circuited by CORS
         let req = Request::new("OPTIONS", "/api/data");

@@ -6,8 +6,8 @@
 use crate::metrics;
 use crate::DistanceMetric;
 use rand::Rng;
-use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::cmp::Ordering;
+use std::collections::{BinaryHeap, HashMap, HashSet};
 
 /// A neighbor reference with distance.
 #[derive(Debug, Clone)]
@@ -33,7 +33,10 @@ impl PartialOrd for Neighbor {
 impl Ord for Neighbor {
     fn cmp(&self, other: &Self) -> Ordering {
         // Reversed for min-heap behavior
-        other.distance.partial_cmp(&self.distance).unwrap_or(Ordering::Equal)
+        other
+            .distance
+            .partial_cmp(&self.distance)
+            .unwrap_or(Ordering::Equal)
     }
 }
 
@@ -97,6 +100,7 @@ impl HnswIndex {
         }
         let level = self.random_level();
 
+        let node_vector = vector.clone();
         let node = HnswNode {
             vector,
             neighbors: vec![Vec::new(); level + 1],
@@ -111,16 +115,17 @@ impl HnswIndex {
 
         let entry_id = self.entry_point.clone().unwrap();
         let mut current = entry_id;
+        self.nodes.insert(id.clone(), node);
 
         // Traverse from top level down to level + 1
         for lev in (level + 1..=self.max_level).rev() {
-            current = self.find_closest_at_level(&node.vector, &current, lev);
+            current = self.find_closest_at_level(&node_vector, &current, lev);
         }
 
         // Insert at levels from min(level, max_level) down to 0
         let insert_level = level.min(self.max_level);
         for lev in (0..=insert_level).rev() {
-            let neighbors = self.search_level(&node.vector, &current, self.ef_construction, lev);
+            let neighbors = self.search_level(&node_vector, &current, self.ef_construction, lev);
 
             // Select M best neighbors
             let selected: Vec<String> = neighbors
@@ -153,8 +158,6 @@ impl HnswIndex {
             self.max_level = level;
             self.entry_point = Some(id.clone());
         }
-
-        self.nodes.insert(id, node);
     }
 
     /// Remove a vector from the index.
@@ -179,7 +182,12 @@ impl HnswIndex {
     }
 
     /// Search for nearest neighbors.
-    pub fn search(&self, query: &[f32], limit: usize, metric: DistanceMetric) -> Vec<(String, f32)> {
+    pub fn search(
+        &self,
+        query: &[f32],
+        limit: usize,
+        metric: DistanceMetric,
+    ) -> Vec<(String, f32)> {
         if self.nodes.is_empty() || query.len() != self.dimensions {
             return Vec::new();
         }
@@ -303,9 +311,7 @@ impl HnswIndex {
                 results.push((neighbor_id, dist));
 
                 if results.len() > ef {
-                    results.sort_by(|a, b| {
-                        a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal)
-                    });
+                    results.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
                     results.truncate(ef);
                 }
             }
@@ -401,7 +407,11 @@ mod tests {
         }
         assert_eq!(index.len(), 100);
 
-        let results = index.search(&[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 5, DistanceMetric::Cosine);
+        let results = index.search(
+            &[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            5,
+            DistanceMetric::Cosine,
+        );
         assert!(!results.is_empty());
         assert!(results.len() <= 5);
     }

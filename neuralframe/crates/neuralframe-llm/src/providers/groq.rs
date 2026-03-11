@@ -135,11 +135,10 @@ impl LLMProvider for GroqProvider {
             });
         }
 
-        let resp: GroqResponse =
-            response.json().await.map_err(|e| LLMError::ParseError {
-                context: "Groq response".into(),
-                source: e.to_string(),
-            })?;
+        let resp: GroqResponse = response.json().await.map_err(|e| LLMError::ParseError {
+            context: "Groq response".into(),
+            source: e.to_string(),
+        })?;
 
         let choice = resp.choices.first().ok_or(LLMError::ParseError {
             context: "Groq response".into(),

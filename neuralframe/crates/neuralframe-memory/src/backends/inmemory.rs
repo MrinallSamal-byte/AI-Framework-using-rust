@@ -114,11 +114,7 @@ impl MemoryStore for InMemoryStore {
     }
 
     async fn count(&self, session: &str) -> Result<usize, MemoryError> {
-        Ok(self
-            .sessions
-            .get(session)
-            .map(|e| e.len())
-            .unwrap_or(0))
+        Ok(self.sessions.get(session).map(|e| e.len()).unwrap_or(0))
     }
 
     fn name(&self) -> &str {
@@ -139,10 +135,7 @@ mod tests {
             .await
             .unwrap();
         store
-            .store(
-                "s1",
-                MemoryEntry::new("s1", "assistant", "Hi there!"),
-            )
+            .store("s1", MemoryEntry::new("s1", "assistant", "Hi there!"))
             .await
             .unwrap();
 
@@ -162,10 +155,7 @@ mod tests {
             .await
             .unwrap();
         store
-            .store(
-                "s1",
-                MemoryEntry::new("s1", "user", "What's the weather?"),
-            )
+            .store("s1", MemoryEntry::new("s1", "user", "What's the weather?"))
             .await
             .unwrap();
 

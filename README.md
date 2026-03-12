@@ -2,8 +2,8 @@
 
 **An AI-native web framework for Rust — HTTP server, LLM orchestration, vector search, and agent runtime in one workspace.**
 
-[![CI](https://github.com/MrinallSamal-byte/GDG_team/actions/workflows/ci.yml/badge.svg)](https://github.com/MrinallSamal-byte/GDG_team/actions)
-[![Security Audit](https://github.com/MrinallSamal-byte/GDG_team/actions/workflows/security.yml/badge.svg)](https://github.com/MrinallSamal-byte/GDG_team/actions/workflows/security.yml)
+[![CI](https://github.com/MrinallSamal-byte/AI-Framework-using-rust/workflows/CI/badge.svg)](https://github.com/MrinallSamal-byte/AI-Framework-using-rust/actions/workflows/ci.yml)
+[![Security Audit](https://github.com/MrinallSamal-byte/AI-Framework-using-rust/workflows/Security%20Audit/badge.svg)](https://github.com/MrinallSamal-byte/AI-Framework-using-rust/actions/workflows/security.yml)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
 

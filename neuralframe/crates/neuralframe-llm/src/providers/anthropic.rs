@@ -35,18 +35,35 @@ impl AnthropicProvider {
         self
     }
 
-    fn build_headers(&self) -> reqwest::header::HeaderMap {
+    /// Build the request headers.
+    ///
+    /// Returns an error if the API key contains characters that are not valid
+    /// in HTTP header values (e.g., non-ASCII or control characters).
+    fn build_headers(&self) -> Result<reqwest::header::HeaderMap, LLMError> {
         let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert("x-api-key", self.api_key.parse().expect("valid header"));
+        headers.insert(
+            "x-api-key",
+            self.api_key.parse().map_err(|_| {
+                LLMError::ConfigError(
+                    "API key contains characters invalid in HTTP headers".into(),
+                )
+            })?,
+        );
         headers.insert(
             "anthropic-version",
-            self.api_version.parse().expect("valid header"),
+            // Safety: api_version is always set to "2023-06-01" which is a valid header.
+            self.api_version
+                .parse()
+                .expect("static api_version is always valid"),
         );
         headers.insert(
             "Content-Type",
-            "application/json".parse().expect("valid header"),
+            // Safety: "application/json" is a compile-time constant that is always valid.
+            "application/json"
+                .parse()
+                .expect("static header value is always valid"),
         );
-        headers
+        Ok(headers)
     }
 }
 
@@ -135,7 +152,7 @@ impl LLMProvider for AnthropicProvider {
         let response = self
             .client
             .post(format!("{}/messages", self.base_url))
-            .headers(self.build_headers())
+            .headers(self.build_headers()?)
             .json(&anthropic_req)
             .send()
             .await
@@ -223,7 +240,7 @@ impl LLMProvider for AnthropicProvider {
         let response = self
             .client
             .post(format!("{}/messages", self.base_url))
-            .headers(self.build_headers())
+            .headers(self.build_headers()?)
             .json(&anthropic_req)
             .send()
             .await

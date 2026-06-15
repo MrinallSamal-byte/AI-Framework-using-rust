@@ -113,7 +113,13 @@ impl HnswIndex {
             return;
         }
 
-        let entry_id = self.entry_point.clone().unwrap();
+        // Safety: the `is_none()` early-return above guarantees `entry_point`
+        // is `Some` here, but we use `expect` with an informative message
+        // instead of `unwrap` to aid future diagnostics.
+        let entry_id = self
+            .entry_point
+            .clone()
+            .expect("entry_point is Some after is_none() guard");
         let mut current = entry_id;
         self.nodes.insert(id.clone(), node);
 

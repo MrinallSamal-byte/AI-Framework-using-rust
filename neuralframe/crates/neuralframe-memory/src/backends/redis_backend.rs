@@ -16,13 +16,16 @@ pub struct RedisStore {
 
 impl RedisStore {
     /// Create a new Redis store.
-    pub fn new(connection_url: &str) -> Self {
-        let client = redis::Client::open(connection_url).expect("Invalid Redis connection URL");
-        Self {
+    ///
+    /// Returns an error if the connection URL is invalid.
+    pub fn new(connection_url: &str) -> Result<Self, MemoryError> {
+        let client = redis::Client::open(connection_url)
+            .map_err(|e| MemoryError::ConnectionError(e.to_string()))?;
+        Ok(Self {
             client,
             prefix: "nf:memory:".to_string(),
             max_entries: 1000,
-        }
+        })
     }
 
     /// Set a key prefix.
@@ -168,7 +171,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_redis_store_and_retrieve() {
-        let store = RedisStore::new("redis://127.0.0.1/");
+        let store = RedisStore::new("redis://127.0.0.1/").expect("valid Redis URL");
 
         store.clear("test_s1").await.unwrap();
 

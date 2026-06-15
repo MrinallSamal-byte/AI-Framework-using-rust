@@ -201,6 +201,14 @@ impl Default for ToolRegistry {
     }
 }
 
+impl std::fmt::Debug for ToolRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ToolRegistry")
+            .field("tools", &self.tools.keys().collect::<Vec<_>>())
+            .finish()
+    }
+}
+
 /// Helper to generate JSON Schema from a type description.
 pub fn json_schema_object(properties: Vec<(&str, &str, &str, bool)>) -> serde_json::Value {
     let mut props = serde_json::Map::new();

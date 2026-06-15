@@ -342,6 +342,7 @@ impl PromptBuilder {
             system: self.system,
             user: self.user,
             context: self.context,
+            max_tokens: self.max_tokens,
         }
     }
 }
@@ -361,6 +362,8 @@ pub struct BuiltPrompt {
     pub user: Option<String>,
     /// Context pieces.
     pub context: Vec<String>,
+    /// Optional maximum token limit for this prompt.
+    pub max_tokens: Option<usize>,
 }
 
 impl BuiltPrompt {

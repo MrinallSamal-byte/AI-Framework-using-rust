@@ -134,7 +134,7 @@ impl SemanticCache {
 
             let similarity = cosine_similarity(embedding, &entry.response.embedding);
             if similarity >= self.config.similarity_threshold
-                && best_match.as_ref().is_none_or(|(s, _, _)| similarity > *s)
+                && best_match.as_ref().map_or(true, |(s, _, _)| similarity > *s)
             {
                 best_match = Some((similarity, entry.key().clone(), entry.response.clone()));
             }

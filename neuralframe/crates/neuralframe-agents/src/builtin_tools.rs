@@ -1,3 +1,10 @@
+//! Built-in tools available to all ReAct agents.
+//!
+//! These tools are ready-to-use implementations of the [`Tool`] trait that
+//! cover common agent needs (introspection, time, echo for testing).  Register
+//! them with a [`neuralframe_llm::tools::ToolRegistry`] and pass that registry
+//! to [`crate::ReActAgent::with_tools`].
+
 use async_trait::async_trait;
 use neuralframe_llm::{
     error::LLMError,

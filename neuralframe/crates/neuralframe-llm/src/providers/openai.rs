@@ -50,25 +50,40 @@ impl OpenAIProvider {
     }
 
     /// Build the request headers.
-    fn build_headers(&self) -> reqwest::header::HeaderMap {
+    ///
+    /// Returns an error if the API key or organization ID contains characters
+    /// that are not valid in HTTP header values (e.g., non-ASCII or control
+    /// characters).
+    fn build_headers(&self) -> Result<reqwest::header::HeaderMap, LLMError> {
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert(
             "Authorization",
             format!("Bearer {}", self.api_key)
                 .parse()
-                .expect("valid header value"),
+                .map_err(|_| {
+                    LLMError::ConfigError(
+                        "API key contains characters invalid in HTTP headers".into(),
+                    )
+                })?,
         );
         headers.insert(
             "Content-Type",
-            "application/json".parse().expect("valid header value"),
+            // Safety: "application/json" is a compile-time constant that is always valid.
+            "application/json"
+                .parse()
+                .expect("static header value is always valid"),
         );
         if let Some(ref org) = self.organization {
             headers.insert(
                 "OpenAI-Organization",
-                org.parse().expect("valid header value"),
+                org.parse().map_err(|_| {
+                    LLMError::ConfigError(
+                        "Organization ID contains characters invalid in HTTP headers".into(),
+                    )
+                })?,
             );
         }
-        headers
+        Ok(headers)
     }
 }
 
@@ -199,7 +214,7 @@ impl LLMProvider for OpenAIProvider {
         let response = self
             .client
             .post(format!("{}/chat/completions", self.base_url))
-            .headers(self.build_headers())
+            .headers(self.build_headers()?)
             .json(&openai_req)
             .send()
             .await
@@ -298,7 +313,7 @@ impl LLMProvider for OpenAIProvider {
         let response = self
             .client
             .post(format!("{}/chat/completions", self.base_url))
-            .headers(self.build_headers())
+            .headers(self.build_headers()?)
             .json(&openai_req)
             .send()
             .await
@@ -357,7 +372,7 @@ impl LLMProvider for OpenAIProvider {
         let response = self
             .client
             .post(format!("{}/embeddings", self.base_url))
-            .headers(self.build_headers())
+            .headers(self.build_headers()?)
             .json(&body)
             .send()
             .await

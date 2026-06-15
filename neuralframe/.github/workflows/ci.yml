@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, "feat/**", "fix/**"]
+  pull_request:
+    branches: [main, master]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # Minimum Rust version for this workspace (mirrors rust-version in Cargo.toml)
+  MSRV: "1.75"
+
+jobs:
+  # ─── Check ────────────────────────────────────────────────────────────────
+  check:
+    name: Check (stable)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry & build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: cargo check (all workspace crates)
+        run: cargo check --workspace --all-targets
+
+  # ─── MSRV ─────────────────────────────────────────────────────────────────
+  msrv:
+    name: Check MSRV (${{ env.MSRV }})
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust ${{ env.MSRV }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.MSRV }}
+
+      - name: Cache cargo registry & build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: msrv-${{ env.MSRV }}
+
+      - name: cargo check on MSRV
+        run: cargo check --workspace
+
+  # ─── Test ─────────────────────────────────────────────────────────────────
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry & build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: cargo test (workspace, excluding integration tests that need live services)
+        # Skip redis-tests feature to avoid requiring a running Redis instance in CI.
+        # Add `--features redis-tests` when running against a service container.
+        run: cargo test --workspace
+
+  # ─── Clippy ───────────────────────────────────────────────────────────────
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable Rust toolchain with clippy
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo registry & build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: cargo clippy -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  # ─── Format ───────────────────────────────────────────────────────────────
+  fmt:
+    name: Rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable Rust toolchain with rustfmt
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+  # ─── Benchmarks compile check ─────────────────────────────────────────────
+  bench-check:
+    name: Bench compile check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry & build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: bench
+
+      - name: Check benchmarks compile
+        run: cargo build --benches --workspace

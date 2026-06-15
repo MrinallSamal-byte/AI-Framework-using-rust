@@ -156,6 +156,11 @@ pub trait Agent: Send + Sync {
 }
 
 /// A ReAct agent implementation.
+///
+/// Cannot derive `Debug` because it holds `Arc<dyn LLMProvider>` and
+/// `Arc<ToolRegistry>` which are trait objects without a `Debug` bound.
+/// The manual impl below prints only the configuration, which is always
+/// `Debug`-able.
 pub struct ReActAgent {
     config: AgentConfig,
     provider: Option<Arc<dyn neuralframe_llm::providers::LLMProvider>>,
@@ -327,6 +332,16 @@ impl Agent for ReActAgent {
 
     fn config(&self) -> &AgentConfig {
         &self.config
+    }
+}
+
+impl std::fmt::Debug for ReActAgent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReActAgent")
+            .field("config", &self.config)
+            .field("has_provider", &self.provider.is_some())
+            .field("has_tool_registry", &self.tool_registry.is_some())
+            .finish()
     }
 }
 

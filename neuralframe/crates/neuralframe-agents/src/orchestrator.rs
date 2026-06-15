@@ -174,6 +174,15 @@ impl Default for Orchestrator {
     }
 }
 
+impl std::fmt::Debug for Orchestrator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Orchestrator")
+            .field("agents", &self.agents.keys().collect::<Vec<_>>())
+            .field("max_rounds", &self.max_rounds)
+            .finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

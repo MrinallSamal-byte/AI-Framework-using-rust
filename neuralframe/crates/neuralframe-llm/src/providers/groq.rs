@@ -29,19 +29,30 @@ impl GroqProvider {
         }
     }
 
-    fn build_headers(&self) -> reqwest::header::HeaderMap {
+    /// Build the request headers.
+    ///
+    /// Returns an error if the API key contains characters that are not valid
+    /// in HTTP header values (e.g., non-ASCII or control characters).
+    fn build_headers(&self) -> Result<reqwest::header::HeaderMap, LLMError> {
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert(
             "Authorization",
             format!("Bearer {}", self.api_key)
                 .parse()
-                .expect("valid header"),
+                .map_err(|_| {
+                    LLMError::ConfigError(
+                        "API key contains characters invalid in HTTP headers".into(),
+                    )
+                })?,
         );
         headers.insert(
             "Content-Type",
-            "application/json".parse().expect("valid header"),
+            // Safety: "application/json" is a compile-time constant that is always valid.
+            "application/json"
+                .parse()
+                .expect("static header value is always valid"),
         );
-        headers
+        Ok(headers)
     }
 }
 
@@ -117,7 +128,7 @@ impl LLMProvider for GroqProvider {
         let response = self
             .client
             .post(format!("{}/chat/completions", self.base_url))
-            .headers(self.build_headers())
+            .headers(self.build_headers()?)
             .json(&groq_req)
             .send()
             .await
@@ -204,7 +215,7 @@ impl LLMProvider for GroqProvider {
         let response = self
             .client
             .post(format!("{}/chat/completions", self.base_url))
-            .headers(self.build_headers())
+            .headers(self.build_headers()?)
             .json(&groq_req)
             .send()
             .await
